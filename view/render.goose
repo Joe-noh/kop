@@ -16,6 +16,7 @@ import core.utf8;
 import core.width;
 import view.state;
 import view.font;
+import view.tree;
 
 let BG = ui::Color { 30, 31, 34, 255 };
 let FG = ui::Color { 222, 222, 214, 255 };
@@ -29,6 +30,9 @@ let INVISIBLE = ui::Color { 78, 82, 90, 255 };       // tabs, trailing spaces, f
 let BAR_BG = ui::Color { 22, 23, 25, 255 };
 let BAR_FG = ui::Color { 168, 168, 162, 255 };
 let NOTICE = ui::Color { 255, 190, 110, 255 };
+let PANEL_BG = ui::Color { 25, 26, 29, 255 };
+let PANEL_EDGE = ui::Color { 44, 46, 51, 255 };
+let PANEL_CURRENT = ui::Color { 44, 52, 66, 255 };
 let NONE = ui::Color { 0, 0, 0, 0 };
 
 fn style_window(c: ui::Context) {
@@ -47,18 +51,20 @@ fn digits(n: i64) -> i64 {
 }
 
 // Lays the window out for its current size.
-fn layout(ed: Editor&, v: View&, f: Fonts) {
+fn layout(ed: Editor&, v: View&, tr: Tree&, f: Fonts) {
     let size = gfx::screen_size();
     let w: f32 = size.x;
     let h: f32 = size.y;
     v.cell_w = f.cell_w;
     v.line_h = f.line_h;
     let bars = if v.bar != BAR_NONE { 2.0 } else { 1.0 };
-    v.text_x = (max(digits(line_count(ed.t)), 3) + 2) * f.cell_w;
+    v.panel_w = if tr.shown { tr.width * f.cell_w } else { 0.0 };
+    v.text_x = v.panel_w + (max(digits(line_count(ed.t)), 3) + 2) * f.cell_w;
     v.text_y = round(f.line_h * 0.3);
     v.text_bottom = h - bars * f.line_h - round(f.line_h * 0.3);
     v.rows = max(floor((v.text_bottom - v.text_y) / f.line_h) as i64, 1);
     v.cols = max(floor((w - v.text_x - f.cell_w) / f.cell_w) as i64, 1);
+    tr.top = clamp(tr.top, 0, max(tr.rows.len - (v.rows - 1), 0));
 }
 
 // Scrolls so the primary caret is on screen.
@@ -177,7 +183,7 @@ fn draw_text_area(c: ui::Context, f: Fonts, ed: Editor&, v: View&, w: f32) {
         read_line(t, n, line);
         let le = ls + line.len;
         if n == current && is_empty(p) {
-            ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, CURRENT_LINE);
+            ui::fill_rect(c, ui::rect(v.panel_w, y, w - v.panel_w, f.line_h), 0.0, CURRENT_LINE);
         }
         // Matches of the search, on this line.
         if v.bar == BAR_FIND && v.query.len > 0 {
@@ -256,8 +262,52 @@ fn draw_bars(c: ui::Context, f: Fonts, ed: Editor&, v: View&, w: f32, h: f32) {
     }
 }
 
-fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&) {
-    layout(ed, v, f);
+// The tree's row at a point: -1 for its header, -2 for none.
+fn tree_row_at(v: View&, tr: Tree&, p: float2) -> i64 {
+    let row = floor((p.y - v.text_y) / v.line_h) as i64;
+    if row < 0 { return -2; }
+    if row == 0 { return -1; }
+    let i = tr.top + row - 1;
+    if i >= tr.rows.len { -2 } else { i }
+}
+
+// The tree: the directory's name, then a row per entry, indented by depth;
+// the file being edited is marked.
+fn draw_tree(c: ui::Context, f: Fonts, v: View&, tr: Tree&, h: f32) {
+    let pw = v.panel_w;
+    ui::fill_rect(c, ui::rect(0.0, 0.0, pw, h - f.line_h), 0.0, PANEL_BG);
+    ui::fill_rect(c, ui::rect(pw - 1.0, 0.0, 1.0, h - f.line_h), 0.0, PANEL_EDGE);
+    let ty_off = round((f.line_h - f.cell_w * 2.0) * 0.5);
+    var s: u8[>..] = [];
+    let root = tr.root[..];
+    let k = rfind(root, "/");
+    fit(if k < 0 || k == root.len - 1 { root } else { root[k + 1..] }, tr.width - 2, s);
+    text_at(c, f, f.cell_w, v.text_y + ty_off, tr.width, s, GUTTER_FG_CURRENT);
+    for row in v.rows - 1 {
+        let i = tr.top + row;
+        if i >= tr.rows.len { break; }
+        let e = tr.rows[i];
+        let y = v.text_y + (row + 1) * f.line_h;
+        if !e.is_dir && path_of(tr, e) == v.path[..] {
+            ui::fill_rect(c, ui::rect(0.0, y, pw - 1.0, f.line_h), 0.0, PANEL_CURRENT);
+        }
+        let indent = 1 + e.depth * 2;
+        if e.is_dir {
+            // A small triangle: right when closed, down when open.
+            let cx = (indent + 0.5) * f.cell_w;
+            let cy = y + f.line_h * 0.5;
+            let r = f.cell_w * 0.35;
+            if e.open { ui::fill_triangle(c, cx - r, cy - r * 0.6, cx + r, cy - r * 0.6, cx, cy + r * 0.8, GUTTER_FG); }
+            else { ui::fill_triangle(c, cx - r * 0.6, cy - r, cx - r * 0.6, cy + r, cx + r * 0.8, cy, GUTTER_FG); }
+        }
+        s.clear();
+        fit(name_of(tr, e), tr.width - indent - 3, s);
+        text_at(c, f, (indent + 2) * f.cell_w, y + ty_off, tr.width, s, if e.is_dir { BAR_FG } else { FG });
+    }
+}
+
+fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&, tr: Tree&) {
+    layout(ed, v, tr, f);
     if v.follow {
         follow_caret(ed, v);
         v.follow = false;
@@ -267,6 +317,7 @@ fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&) {
     let w: f32 = size.x;
     let h: f32 = size.y;
     if ui::begin(c, "weigh", ui::rect(0.0, 0.0, w, h), ui::WINDOW_NO_SCROLLBAR | ui::WINDOW_NO_INPUT) {
+        if tr.shown { draw_tree(c, f, v, tr, h); }
         draw_text_area(c, f, ed, v, w);
         draw_bars(c, f, ed, v, w, h);
     }

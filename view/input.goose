@@ -16,6 +16,7 @@ import core.doc;
 import core.utf8;
 import view.state;
 import view.render;
+import view.tree;
 
 struct Keys {
     left: i64, right: i64, up: i64, down: i64,
@@ -113,7 +114,7 @@ fn bar_key(ed: Editor&, v: View&, k: Keys, e: gfx::Event, cmd: bool, shift: bool
     return false;
 }
 
-fn on_key(ed: Editor&, v: View&, k: Keys, e: gfx::Event, mac: bool) {
+fn on_key(ed: Editor&, v: View&, tr: Tree&, k: Keys, e: gfx::Event, mac: bool) {
     let shift = (e.mods & gfx::MOD_SHIFT) != 0;
     let cmd = (e.mods & (if mac { gfx::MOD_GUI } else { gfx::MOD_CTRL })) != 0;
     let word = (e.mods & (if mac { gfx::MOD_ALT } else { gfx::MOD_CTRL })) != 0;
@@ -138,6 +139,7 @@ fn on_key(ed: Editor&, v: View&, k: Keys, e: gfx::Event, mac: bool) {
         else if key == 'f' { open_find(ed, v); }
         else if key == 'g' { find_in_doc(ed, v, !shift); }
         else if key == 'q' { v.quit = true; }
+        else if key == 'b' { if tr.root.len > 0 { tr.shown = !tr.shown; } }
         return;
     }
     if sc == k.left {
@@ -215,9 +217,27 @@ fn drag_to(ed: Editor&, v: View&, pos: i64) {
     ed.sels[ed.sels.len - 1] = s;
 }
 
-fn on_button(ed: Editor&, v: View&, e: gfx::Event) {
+// A click in the tree opens or closes a directory, or asks for a file.
+fn on_tree_click(v: View&, tr: Tree&, p: float2) {
+    let i = tree_row_at(v, tr, p);
+    if i < 0 { return; }
+    let e = tr.rows[i];
+    if e.is_dir {
+        toggle(tr, i);
+        return;
+    }
+    v.open_path.resize(0, 0);
+    v.open_path.append(path_of(tr, e)[..min(e.path_len, 1024)]);
+    v.open_request = true;
+}
+
+fn on_button(ed: Editor&, v: View&, tr: Tree&, e: gfx::Event) {
     if e.button != gfx::MOUSE_LEFT || !e.down { return; }
     if e.y >= v.text_bottom { return; }
+    if e.x < v.panel_w {
+        on_tree_click(v, tr, float2 { e.x, e.y });
+        return;
+    }
     let p = float2 { e.x, e.y };
     let pos = hit(ed, v, p);
     let shift = gfx::key_down("Left Shift") || gfx::key_down("Right Shift");
@@ -244,7 +264,7 @@ fn on_button(ed: Editor&, v: View&, e: gfx::Event) {
     v.blink_at = clock();
 }
 
-fn handle_input(ed: Editor&, v: View&, k: Keys, mac: bool) {
+fn handle_input(ed: Editor&, v: View&, tr: Tree&, k: Keys, mac: bool) {
     var typed: u8[>..] = [];
     let cmd_key = if mac { gfx::MOD_GUI } else { gfx::MOD_CTRL };
     var mods: i32 = 0;
@@ -256,9 +276,14 @@ fn handle_input(ed: Editor&, v: View&, k: Keys, mac: bool) {
         flush_typed(ed, v, typed);
         if e.kind == gfx::EVENT_KEY {
             mods = e.mods;
-            if e.down { on_key(ed, v, k, e, mac); }
+            if e.down { on_key(ed, v, tr, k, e, mac); }
         } else if e.kind == gfx::EVENT_MOUSE_BUTTON {
-            on_button(ed, v, e);
+            on_button(ed, v, tr, e);
+        } else if e.kind == gfx::EVENT_MOUSE_WHEEL && gfx::mouse_pos().x < v.panel_w {
+            tr.wheel += e.y * 3.0;
+            let rows = trunc(tr.wheel);
+            tr.top -= rows as i64;
+            tr.wheel -= rows;
         } else if e.kind == gfx::EVENT_MOUSE_WHEEL {
             v.wheel += e.y * 3.0;
             let lines = trunc(v.wheel);

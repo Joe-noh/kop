@@ -24,6 +24,7 @@ struct View {
     left: i64 = 0,
     rows: i64 = 1,
     cols: i64 = 1,
+    panel_w: f32 = 0.0,             // the file tree's width, left of the text
     text_x: f32 = 0.0,
     text_y: f32 = 0.0,
     text_bottom: f32 = 0.0,
@@ -40,6 +41,11 @@ struct View {
     message_at: f64 = 0.0,
     blink_at: f64 = 0.0,            // the caret shows steadily for a moment after it moves
     quit: bool = false,
+    // A file picked in the tree, to open once this document lets go of the
+    // window; picking it again while this one has unsaved changes drops them.
+    open_request: bool = false,
+    open_path: u8[..1024],
+    discard_path: u8[..1024],
 }
 
 fn say(v: View&, text: const u8[:]) {
