@@ -7,6 +7,9 @@ import core.edit;
 import core.width;
 import core.utf8;
 import core.doc;
+import core.settings;
+import view.fontfile;
+import os;
 
 var failures = 0;
 
@@ -271,7 +274,60 @@ fn test_doc() {
     check(!sjis.utf8, "Shift_JIS is not UTF-8");
 }
 
+fn test_settings() {
+    var s = Settings {};
+    var problems: u8[>..] = [];
+    check(apply_settings(s, """{ "editor": { "fontSize": 18 } }""", problems) && problems.len == 0, "editor size");
+    check(s.editor_font_size == 18.0 && s.ui_font_size == 11.0, "only what the file names changes");
+    check(apply_settings(s, """{ "ui": { "fontSize": 11.5 } }""", problems), "ui size over the first");
+    check(s.editor_font_size == 18.0 && s.ui_font_size == 11.5, "files layer");
+    check(apply_settings(s, """{ "ui": { "fontSize": 100, "theme": "x" }, "other": 1 }""", problems), "problems are not fatal");
+    check(s.ui_font_size == MAX_FONT_SIZE, "out of range is clamped");
+    check(find(problems, "ui.fontSize") >= 0 && find(problems, "ui.theme") >= 0 && find(problems, "other") >= 0,
+          str("problems named: ", problems));
+    problems.clear();
+    check(!apply_settings(s, """{ "editor": { "fontSize": 9 """, problems) && problems.len > 0, "broken JSON");
+    check(s.editor_font_size == 18.0, "broken JSON changes nothing");
+    var t = Settings {};
+    check(apply_settings(t, """{ "editor": { "fontFamily": ["Menlo", "/x/y.ttf"] }, "ui": { "fontFamily": "Osaka" } }""", problems),
+          "font families");
+    check(t.editor_fonts == "Menlo\n/x/y.ttf\n" && t.ui_fonts == "Osaka\n", str("font lists: ", t.editor_fonts, t.ui_fonts));
+    var dir: u8[>..] = [];
+    project_dir("a/b/c.txt", dir);
+    check(dir == "a/b", "project of a file");
+}
+
+// On a Mac: finding system fonts by name, a font out of a collection, and
+// what a font has.
+fn test_font_files() {
+    var nfc: u8[>..] = [];
+    compose_kana("\xE3\x82\xAD\xE3\x82\x99\xE3\x83\x8F\xE3\x82\x9A\xE3\x81\xAF", nfc);    // キ゛ハ゜は, decomposed
+    check(nfc == "ギパは", str("kana composed: ", nfc));
+    if !file_exists("/System/Library/Fonts/Menlo.ttc") { return; }
+    var path: u8[>..] = [];
+    check(resolve_font("Menlo", path) && path == "/System/Library/Fonts/Menlo.ttc", str("resolve Menlo: ", path));
+    path.clear();
+    check(resolve_font("ヒラギノ角ゴシック W3", path), "resolve Hiragino");
+    path.clear();
+    check(!resolve_font("NoSuchFont-Regular", path), "unknown font");
+    var raw: u8[>..] = [];
+    var ttf: u8[>..] = [];
+    check(read_file("/System/Library/Fonts/Menlo.ttc", raw) && single_font(raw, ttf), "a font out of a collection");
+    var has: u8[>..] = [];
+    coverage(ttf, has);
+    check(has['A'] != 0 && has[0x3042] == 0, "Menlo has A, not あ");
+    var raw2: u8[>..] = [];
+    var ttf2: u8[>..] = [];
+    path.clear();
+    resolve_font("ヒラギノ角ゴシック W3", path);
+    check(read_file(path, raw2) && single_font(raw2, ttf2), "Hiragino out of its collection");
+    coverage(ttf2, has);
+    check(has[0x3042] != 0 && has[0x6F22] != 0, "Hiragino has あ and 漢");
+}
+
 fn main() {
+    test_font_files();
+    test_settings();
     test_undo_fuzz();
     test_doc();
     test_editing();

@@ -22,8 +22,8 @@ core/motion.goose  カーソル移動（文字・単語・行・上下）
 core/utf8.goose    UTF-8 と文字種
 core/width.goose   文字幅（セル数）
 core/doc.goose     BOM・改行コード・インデントの検出と保存
-view/              描画、入力、フォント、SDL まわり、テスト用の入力再生
-assets/            BIZ UDゴシック（SIL Open Font License）
+core/settings.goose 設定ファイル（~/.weigh/settings.json と、プロジェクトの .weigh/settings.json）
+view/              描画、入力、フォント、ファイルツリー、SDL まわり、テスト用の入力再生
 ```
 
 ## テスト

@@ -51,20 +51,29 @@ fn digits(n: i64) -> i64 {
 }
 
 // Lays the window out for its current size.
+// The text is laid out in the text face's cells, the tree and the bars in
+// the ui face's.
 fn layout(ed: Editor&, v: View&, tr: Tree&, f: Fonts) {
     let size = gfx::screen_size();
     let w: f32 = size.x;
     let h: f32 = size.y;
-    v.cell_w = f.cell_w;
-    v.line_h = f.line_h;
-    let bars = if v.bar != BAR_NONE { 2.0 } else { 1.0 };
-    v.panel_w = if tr.shown { tr.width * f.cell_w } else { 0.0 };
-    v.text_x = v.panel_w + (max(digits(line_count(ed.t)), 3) + 2) * f.cell_w;
-    v.text_y = round(f.line_h * 0.3);
-    v.text_bottom = h - bars * f.line_h - round(f.line_h * 0.3);
-    v.rows = max(floor((v.text_bottom - v.text_y) / f.line_h) as i64, 1);
-    v.cols = max(floor((w - v.text_x - f.cell_w) / f.cell_w) as i64, 1);
-    tr.top = clamp(tr.top, 0, max(tr.rows.len - (v.rows - 1), 0));
+    let tf = f.text;
+    let uf = f.ui;
+    v.cell_w = tf.cell_w;
+    v.line_h = tf.line_h;
+    v.ui_cell_w = uf.cell_w;
+    v.ui_line_h = uf.line_h;
+    let bars_h = (if v.bar != BAR_NONE { 2.0 } else { 1.0 }) * uf.line_h;
+    v.panel_w = if tr.shown { tr.width * uf.cell_w } else { 0.0 };
+    v.text_x = v.panel_w + (max(digits(line_count(ed.t)), 3) + 2) * tf.cell_w;
+    v.text_y = round(tf.line_h * 0.3);
+    v.text_bottom = h - bars_h - round(tf.line_h * 0.3);
+    v.rows = max(floor((v.text_bottom - v.text_y) / tf.line_h) as i64, 1);
+    v.cols = max(floor((w - v.text_x - tf.cell_w) / tf.cell_w) as i64, 1);
+    v.tree_y = round(uf.line_h * 0.3);
+    v.tree_bottom = h - bars_h;
+    v.tree_rows = max(floor((v.tree_bottom - v.tree_y) / uf.line_h) as i64 - 1, 1);
+    tr.top = clamp(tr.top, 0, max(tr.rows.len - v.tree_rows, 0));
 }
 
 // Scrolls so the primary caret is on screen.
@@ -95,19 +104,14 @@ fn hit(ed: Editor&, v: View&, p: float2) -> i64 {
 
 fn cell_x(v: View&, col: i64) -> f32 { v.text_x + (col - v.left) * v.cell_w }
 
-fn text_at(c: ui::Context, f: Fonts, x: f32, y: f32, cells: i64, s: const u8[:], color: ui::Color) {
-    ui::draw_text(c, ui::rect(x, y, (cells + 1) * f.cell_w, f.line_h), s, f.font, NONE, color);
-}
-
 // One line of text at row `y`: runs of ordinary half-width characters are
 // drawn together, wide ones one at a time on their two cells, and the
 // invisible ones as marks.
-fn draw_line(c: ui::Context, f: Fonts, v: View&, line: const u8[:], y: f32) {
+fn draw_line(c: ui::Context, f: Face, v: View&, line: const u8[:], y: f32) {
     // Where the trailing blanks start, which get marks.
     var blank_from = line.len;
     while blank_from > 0 && (line[blank_from - 1] == ' ' || line[blank_from - 1] == '\t') { blank_from--; }
     let last_col = v.left + v.cols;
-    let ty = y + round((f.line_h - f.cell_w * 2.0) * 0.5);
     var run_from = -1;          // the byte where the pending run starts
     var run_col = 0;
     var col = 0;
@@ -122,7 +126,7 @@ fn draw_line(c: ui::Context, f: Fonts, v: View&, line: const u8[:], y: f32) {
             // A combining mark rides on the run.
         } else {
             if run_from >= 0 {
-                text_at(c, f, cell_x(v, run_col), ty, col - run_col, line[run_from..i], FG);
+                draw_str(c, f, cell_x(v, run_col), y, line[run_from..i], FG);
                 run_from = -1;
             }
             if col >= v.left {
@@ -141,14 +145,14 @@ fn draw_line(c: ui::Context, f: Fonts, v: View&, line: const u8[:], y: f32) {
                 } else if cp < 0x20 || cp == 0x7F || cp == 0xFFFD {
                     ui::stroke_rect(c, ui::rect(x + 1.0, y + 2.0, f.cell_w - 2.0, f.line_h - 4.0), 0.0, 1.0, NOTICE);
                 } else if w > 0 {
-                    text_at(c, f, x, ty, w, line[i..i + n], FG);
+                    draw_str(c, f, x, y, line[i..i + n], FG);
                 }
             }
         }
         col += w;
         i += n;
     }
-    if run_from >= 0 { text_at(c, f, cell_x(v, run_col), ty, col - run_col, line[run_from..i], FG); }
+    if run_from >= 0 { draw_str(c, f, cell_x(v, run_col), y, line[run_from..i], FG); }
 }
 
 // The part of [a, b) on a line starting at `ls` with text `line`, as cell
@@ -167,7 +171,7 @@ fn fill_cols(c: ui::Context, v: View&, y: f32, ca: i64, cb: i64, color: ui::Colo
     if b > a { ui::fill_rect(c, ui::rect(cell_x(v, a), y, (b - a) * v.cell_w, v.line_h), 0.0, color); }
 }
 
-fn draw_text_area(c: ui::Context, f: Fonts, ed: Editor&, v: View&, w: f32) {
+fn draw_text_area(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32) {
     let t = ed.t;
     let p = primary(ed);
     let current = line_of(t, p.head);
@@ -205,8 +209,7 @@ fn draw_text_area(c: ui::Context, f: Fonts, ed: Editor&, v: View&, w: f32) {
         num.clear();
         format(num, n + 1);
         let nx = v.text_x - (num.len + 1) * f.cell_w;
-        let ty = y + round((f.line_h - f.cell_w * 2.0) * 0.5);
-        text_at(c, f, nx, ty, num.len, num, if n == current { GUTTER_FG_CURRENT } else { GUTTER_FG });
+        draw_str(c, f, nx, y, num, if n == current { GUTTER_FG_CURRENT } else { GUTTER_FG });
         draw_line(c, f, v, line, y);
         if blink_on {
             for s in ed.sels {
@@ -219,8 +222,7 @@ fn draw_text_area(c: ui::Context, f: Fonts, ed: Editor&, v: View&, w: f32) {
     }
 }
 
-fn draw_bars(c: ui::Context, f: Fonts, ed: Editor&, v: View&, w: f32, h: f32) {
-    let ty_off = round((f.line_h - f.cell_w * 2.0) * 0.5);
+fn draw_bars(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32, h: f32) {
     var y = h - f.line_h;
     var s: u8[>..] = [];
     // The status bar: the file, the caret, and what the file is made of.
@@ -237,12 +239,12 @@ fn draw_bars(c: ui::Context, f: Fonts, ed: Editor&, v: View&, w: f32, h: f32) {
     if v.info.bom { s.append(" BOM"); }
     s.append(if ed.crlf { "   CRLF" } else { "   LF" });
     s.append(if ed.tabs { "   タブ" } else { "   スペース" });
-    text_at(c, f, f.cell_w, y + ty_off, (w / f.cell_w) as i64, s, BAR_FG);
+    draw_str(c, f, f.cell_w, y, s, BAR_FG);
     if v.message.len > 0 && clock() - v.message_at < 4.0 {
         let mw = advance(v.message, 0) + 2;
         let x = max(w - mw * f.cell_w, w * 0.5);
         ui::fill_rect(c, ui::rect(x - f.cell_w, y, w - x + f.cell_w, f.line_h), 0.0, BAR_BG);
-        text_at(c, f, x, y + ty_off, mw, v.message, NOTICE);
+        draw_str(c, f, x, y, v.message, NOTICE);
     }
     if v.bar == BAR_NONE { return; }
     // The field above it: search, or where to save.
@@ -250,22 +252,21 @@ fn draw_bars(c: ui::Context, f: Fonts, ed: Editor&, v: View&, w: f32, h: f32) {
     ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, CURRENT_LINE);
     s.clear();
     s.append(if v.bar == BAR_FIND { "検索: " } else { "保存先: " });
-    let label_cells = advance(s, 0);
     s.append(v.query);
-    text_at(c, f, f.cell_w, y + ty_off, (w / f.cell_w) as i64, s, FG);
+    draw_str(c, f, f.cell_w, y, s, FG);
     let caret_col = advance(s, 0);
     ui::fill_rect(c, ui::rect((caret_col + 1) * f.cell_w, y, max(round(f.cell_w * 0.22), 2.0), f.line_h), 0.0, CARET);
     if v.bar == BAR_FIND {
         let hint = "Enter: 次   Shift+Enter: 前   Esc: 閉じる";
         let hx = w - (advance(hint, 0) + 2) * f.cell_w;
-        if hx > (caret_col + 4) * f.cell_w { text_at(c, f, hx, y + ty_off, advance(hint, 0), hint, GUTTER_FG); }
+        if hx > (caret_col + 4) * f.cell_w { draw_str(c, f, hx, y, hint, GUTTER_FG); }
     }
 }
 
 // The tree's row at a point: -1 for its header, -2 for none.
 fn tree_row_at(v: View&, tr: Tree&, p: float2) -> i64 {
-    let row = floor((p.y - v.text_y) / v.line_h) as i64;
-    if row < 0 { return -2; }
+    let row = floor((p.y - v.tree_y) / v.ui_line_h) as i64;
+    if row < 0 || p.y >= v.tree_bottom { return -2; }
     if row == 0 { return -1; }
     let i = tr.top + row - 1;
     if i >= tr.rows.len { -2 } else { i }
@@ -273,21 +274,20 @@ fn tree_row_at(v: View&, tr: Tree&, p: float2) -> i64 {
 
 // The tree: the directory's name, then a row per entry, indented by depth;
 // the file being edited is marked.
-fn draw_tree(c: ui::Context, f: Fonts, v: View&, tr: Tree&, h: f32) {
+fn draw_tree(c: ui::Context, f: Face, v: View&, tr: Tree&) {
     let pw = v.panel_w;
-    ui::fill_rect(c, ui::rect(0.0, 0.0, pw, h - f.line_h), 0.0, PANEL_BG);
-    ui::fill_rect(c, ui::rect(pw - 1.0, 0.0, 1.0, h - f.line_h), 0.0, PANEL_EDGE);
-    let ty_off = round((f.line_h - f.cell_w * 2.0) * 0.5);
+    ui::fill_rect(c, ui::rect(0.0, 0.0, pw, v.tree_bottom), 0.0, PANEL_BG);
+    ui::fill_rect(c, ui::rect(pw - 1.0, 0.0, 1.0, v.tree_bottom), 0.0, PANEL_EDGE);
     var s: u8[>..] = [];
     let root = tr.root[..];
     let k = rfind(root, "/");
     fit(if k < 0 || k == root.len - 1 { root } else { root[k + 1..] }, tr.width - 2, s);
-    text_at(c, f, f.cell_w, v.text_y + ty_off, tr.width, s, GUTTER_FG_CURRENT);
-    for row in v.rows - 1 {
+    draw_str(c, f, f.cell_w, v.tree_y, s, GUTTER_FG_CURRENT);
+    for row in v.tree_rows {
         let i = tr.top + row;
         if i >= tr.rows.len { break; }
         let e = tr.rows[i];
-        let y = v.text_y + (row + 1) * f.line_h;
+        let y = v.tree_y + (row + 1) * f.line_h;
         if !e.is_dir && path_of(tr, e) == v.path[..] {
             ui::fill_rect(c, ui::rect(0.0, y, pw - 1.0, f.line_h), 0.0, PANEL_CURRENT);
         }
@@ -302,7 +302,7 @@ fn draw_tree(c: ui::Context, f: Fonts, v: View&, tr: Tree&, h: f32) {
         }
         s.clear();
         fit(name_of(tr, e), tr.width - indent - 3, s);
-        text_at(c, f, (indent + 2) * f.cell_w, y + ty_off, tr.width, s, if e.is_dir { BAR_FG } else { FG });
+        draw_str(c, f, (indent + 2) * f.cell_w, y, s, if e.is_dir { BAR_FG } else { FG });
     }
 }
 
@@ -317,9 +317,9 @@ fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&, tr: Tree&) {
     let w: f32 = size.x;
     let h: f32 = size.y;
     if ui::begin(c, "weigh", ui::rect(0.0, 0.0, w, h), ui::WINDOW_NO_SCROLLBAR | ui::WINDOW_NO_INPUT) {
-        if tr.shown { draw_tree(c, f, v, tr, h); }
-        draw_text_area(c, f, ed, v, w);
-        draw_bars(c, f, ed, v, w, h);
+        if tr.shown { draw_tree(c, f.ui, v, tr); }
+        draw_text_area(c, f.text, ed, v, w);
+        draw_bars(c, f.ui, ed, v, w, h);
     }
     ui::end(c);
 }

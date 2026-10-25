@@ -19,6 +19,8 @@ import core.undo;
 import core.edit;
 import core.doc;
 import core.motion;
+import core.settings;
+import core.utf8;
 import view.state;
 import view.font;
 import view.render;
@@ -26,10 +28,8 @@ import view.input;
 import view.platform;
 import view.script;
 import view.tree;
+import view.fontfile;
 
-// BIZ UDGothic (SIL Open Font License, assets/OFL.txt), built into the program.
-let FONT: const u8[:] = embed_file("assets/BIZUDGothic-Regular.ttf");
-let FONT_POINTS: f32 = 15.0;
 
 fn basename(path: const u8[:]) -> const u8[:] {
     let k = rfind(path, "/");
@@ -66,6 +66,7 @@ struct App {
     frames: i64,            // stop after this many frames; -1 for never
     drawn: i64,
     profile: bool,
+    notice: u8[..240],      // for the status bar of the first document: what was wrong with the settings
     started: f64,
     frame_time: f64,
     slowest: f64,
@@ -104,6 +105,10 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
     v.readonly = !info.utf8;
     if !opened_ok { say(v, str("開けませんでした: ", path)); }
     else if v.readonly { say(v, "UTF-8 ではないので読み取り専用で開いています"); }
+    if app.notice.len > 0 {
+        say(v, app.notice);
+        app.notice.resize(0, 0);
+    }
 
     gfx::set_title(title_of(v, false));
     var was_dirty = false;
@@ -180,21 +185,33 @@ fn main() {
     let script_lines = split(script_text, '\n');
     var script = Script { lines: script_lines };
 
+    var problems: u8[>..] = [];
+    let settings = load_settings(path_arg, problems);
+
     guard gfx::open("weigh", 1100, 760, gfx::WINDOW_RESIZABLE) else {
         abort(str("gfx: ", gfx::error()));
     }
     let win = sdl_window();
     let density = pixel_density(win, gfx::screen_size().x);
-    let f, font_ok = load_font(FONT, round(FONT_POINTS * density));
-    guard font_ok else { abort(str("font: ", ui::error())); }
-    learn_widths(f);
-    let c = ui::create_context(f.font);
+    let text_fonts = if settings.editor_fonts.len > 0 { settings.editor_fonts[..] } else { default_fonts() };
+    let ui_fonts = if settings.ui_fonts.len > 0 { settings.ui_fonts[..] } else { text_fonts };
+    let text_face, text_ok = load_face(text_fonts, round(settings.editor_font_size * density), problems);
+    guard text_ok else { abort(str("font: ", ui::error())); }
+    let ui_face, ui_ok = load_face(ui_fonts, round(settings.ui_font_size * density), problems);
+    guard ui_ok else { abort(str("font: ", ui::error())); }
+    if problems.len > 0 { write_stderr(str("weigh: ", problems, "\n")); }
+    let f = Fonts { text: text_face, ui: ui_face };
+    learn_widths(f.text);
+    let c = ui::create_context(f.ui.parts[0]);
     guard c.id != 0 else { abort(str("ui: ", ui::error())); }
     style_window(c);
     gfx::text_input(true);
     var app = App { c: c, f: f, win: win, density: density, k: keys(), mac: gfx::driver() == "metal",
                     scripted: script_path.len > 0, frames: frames, drawn: 0, profile: profile,
-                    started: clock(), frame_time: 0.0, slowest: 0.0 };
+                    notice: [], started: clock(), frame_time: 0.0, slowest: 0.0 };
+    var cut = min(problems.len, 240);
+    while cut < problems.len && cut > 0 && is_cont(problems[cut]) { cut--; }
+    app.notice.append(problems[..cut]);
 
     // A directory opens as the tree, with no file yet; a file opens by itself.
     var pool: u8[>..<] = [];

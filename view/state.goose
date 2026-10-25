@@ -28,8 +28,13 @@ struct View {
     text_x: f32 = 0.0,
     text_y: f32 = 0.0,
     text_bottom: f32 = 0.0,
-    cell_w: f32 = 8.0,
+    cell_w: f32 = 8.0,              // the text's cells
     line_h: f32 = 16.0,
+    ui_cell_w: f32 = 8.0,           // the tree's and the bars'
+    ui_line_h: f32 = 16.0,
+    tree_y: f32 = 0.0,              // where the tree's header row starts
+    tree_bottom: f32 = 0.0,
+    tree_rows: i64 = 1,             // entry rows that fit below the header
     follow: bool = true,            // scroll to the primary caret at the next draw
     wheel: f32 = 0.0,               // scrolling not yet a whole line
     drag: i64 = DRAG_NONE,

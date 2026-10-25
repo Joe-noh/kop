@@ -233,11 +233,11 @@ fn on_tree_click(v: View&, tr: Tree&, p: float2) {
 
 fn on_button(ed: Editor&, v: View&, tr: Tree&, e: gfx::Event) {
     if e.button != gfx::MOUSE_LEFT || !e.down { return; }
-    if e.y >= v.text_bottom { return; }
     if e.x < v.panel_w {
         on_tree_click(v, tr, float2 { e.x, e.y });
         return;
     }
+    if e.y >= v.text_bottom { return; }
     let p = float2 { e.x, e.y };
     let pos = hit(ed, v, p);
     let shift = gfx::key_down("Left Shift") || gfx::key_down("Right Shift");
