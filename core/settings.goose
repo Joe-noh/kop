@@ -3,6 +3,7 @@
 // sets only what it names.
 //
 //   {
+//     "theme": "spacegray",
 //     "editor": { "fontSize": 14, "fontFamily": ["Menlo", "ヒラギノ角ゴシック W3"] },
 //     "ui": { "fontSize": 13 }
 //   }
@@ -24,6 +25,7 @@ struct Settings {
     ui_font_size: f32 = 13.0,
     editor_fonts: u8[..1024] = [],  // font names, one per line; empty for the defaults
     ui_fonts: u8[..1024] = [],
+    theme: u8[..64] = [],           // a theme's name; empty for the default
 }
 
 // "fontFamily": one name, or a list of them.
@@ -77,6 +79,11 @@ fn apply_settings(s: Settings&, text: const u8[:], problems: u8[>..]&) -> bool {
                 else if key == "fontFamily" { read_font_family(r, "ui.fontFamily", next.ui_fonts, problems); }
                 else { format(problems, "ui.", key, " は知らない設定です; "); json::skip(r); }
             };
+        } else if section == "theme" {
+            var scratch: u8[>..] = [];
+            let name = json::read_string(r, scratch);
+            next.theme.resize(0, 0);
+            next.theme.append(name[..min(name.len, 64)]);
         } else {
             format(problems, section, " は知らない設定です; ");
             json::skip(r);

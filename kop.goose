@@ -30,6 +30,7 @@ import view.platform;
 import view.script;
 import view.tree;
 import view.fontfile;
+import view.theme;
 
 
 fn basename(path: const u8[:]) -> const u8[:] {
@@ -151,7 +152,7 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
         let draw_start = clock();
         draw(app.c, app.f, ed, v, tr, hl);
         app.draw_time += clock() - draw_start;
-        gfx::begin_screen(float4 { 0x10 / 255.0, 0x0F / 255.0, 0x0F / 255.0, 1.0 });     // Flexoki's base
+        gfx::begin_screen(float4 { theme.bg.r / 255.0, theme.bg.g / 255.0, theme.bg.b / 255.0, 1.0 });
         gfx::end_pass();
         let render_start = clock();
         ui::render(app.c);
@@ -212,6 +213,11 @@ fn main() {
 
     var problems: u8[>..] = [];
     let settings = load_settings(path_arg, problems);
+    if settings.theme.len > 0 {
+        let chosen, known = theme_named(settings.theme);
+        if known { theme = chosen; }
+        else { format(problems, "テーマがありません: ", settings.theme, "（", THEME_NAMES, "）; "); }
+    }
 
     guard gfx::open("kop", 1100, 760, gfx::WINDOW_RESIZABLE) else {
         abort(str("gfx: ", gfx::error()));

@@ -293,6 +293,8 @@ fn test_settings() {
     check(apply_settings(t, """{ "editor": { "fontFamily": ["Menlo", "/x/y.ttf"] }, "ui": { "fontFamily": "Osaka" } }""", problems),
           "font families");
     check(t.editor_fonts == "Menlo\n/x/y.ttf\n" && t.ui_fonts == "Osaka\n", str("font lists: ", t.editor_fonts, t.ui_fonts));
+    var th = Settings {};
+    check(apply_settings(th, """{ "theme": "spacegray" }""", problems) && th.theme == "spacegray", "theme name");
     var dir: u8[>..] = [];
     project_dir("a/b/c.txt", dir);
     check(dir == "a/b", "project of a file");

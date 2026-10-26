@@ -24,7 +24,7 @@ core/width.goose   文字幅（セル数）
 core/doc.goose     BOM・改行コード・インデントの検出と保存
 core/settings.goose 設定ファイル（~/.kop/settings.json と、プロジェクトの .kop/settings.json）
 core/syntax.goose  シンタックスハイライト（言語定義、行ごとの字句解析、行頭の状態のキャッシュ）
-view/              描画、入力、フォント、ファイルツリー、SDL まわり、テスト用の入力再生
+view/              描画、入力、フォント、ファイルツリー、テーマ、SDL まわり、テスト用の入力再生
 ```
 
 ## テスト

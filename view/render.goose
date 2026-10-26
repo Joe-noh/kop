@@ -18,57 +18,13 @@ import core.syntax;
 import view.state;
 import view.font;
 import view.tree;
+import view.theme;
 
-// Flexoki dark (https://github.com/kepano/flexoki), as its Helix theme uses it.
-let BASE = ui::Color { 0x10, 0x0F, 0x0F, 255 };
-let BG_2 = ui::Color { 0x1C, 0x1B, 0x1A, 255 };
-let UI_2 = ui::Color { 0x28, 0x27, 0x26, 255 };
-let UI_3 = ui::Color { 0x34, 0x33, 0x31, 255 };
-let TX = ui::Color { 0xCE, 0xCD, 0xC3, 255 };
-let TX_1 = ui::Color { 0xB7, 0xB5, 0xAC, 255 };
-let TX_2 = ui::Color { 0x87, 0x85, 0x80, 255 };
-let TX_3 = ui::Color { 0x57, 0x56, 0x53, 255 };
-let ORANGE = ui::Color { 0xDA, 0x70, 0x2C, 255 };
-let YELLOW = ui::Color { 0xD0, 0xA2, 0x15, 255 };
-let GREEN = ui::Color { 0x87, 0x9A, 0x39, 255 };
-let CYAN = ui::Color { 0x3A, 0xA9, 0x9F, 255 };
-let BLUE = ui::Color { 0x43, 0x85, 0xBE, 255 };
-
-let BG = BASE;                      // ui.background
-let FG = TX;
-let GUTTER_FG = UI_3;               // ui.linenr
-let GUTTER_FG_CURRENT = CYAN;       // ui.linenr.selected
-let CURRENT_LINE = BG_2;            // ui.cursorline.primary
-let SELECTION = UI_3;               // ui.selection
-let MATCH = UI_2;
-let CARET = CYAN;                   // ui.cursor.primary
-let INVISIBLE = TX_3;               // ui.virtual: tabs, trailing spaces, full-width spaces
-let BAR_BG = BG_2;                  // ui.statusline
-let BAR_FG = TX_1;
-let FIELD_BG = UI_2;                // ui.popup: the search field
-let HINT_FG = TX_2;                 // ui.help
-let NOTICE = YELLOW;                // warning
-let PANEL_BG = BG_2;
-let PANEL_EDGE = UI_2;
-let PANEL_CURRENT = UI_2;           // ui.text.focus
-let DIR_FG = BLUE;                  // ui.text.directory
 let NONE = ui::Color { 0, 0, 0, 0 };
-
-// The colors of the syntax's token kinds, by TOK_* value.
-let TOKEN_COLORS: ui::Color[8] = [
-    TX,                             // text: variable
-    GREEN,                          // keyword
-    YELLOW,                         // type
-    ORANGE,                         // constant
-    ORANGE,                         // number: constant.numeric
-    CYAN,                           // string
-    TX_3,                           // comment (italic in Helix; ui has no italic)
-    ORANGE,                         // function
-];
 
 fn style_window(c: ui::Context) {
     var style = ui::style(c);
-    style.window.fixed_background = ui::style_item_color(BG);
+    style.window.fixed_background = ui::style_item_color(theme.bg);
     style.window.padding = float2 { 0.0, 0.0 };
     style.window.border = 0.0;
     ui::set_style(c, style);
@@ -150,14 +106,14 @@ fn draw_line(c: ui::Context, f: Face, v: View&, line: const u8[:], y: f32, spans
     let last_col = v.left + v.cols;
     var run_from = -1;          // the byte where the pending run starts
     var run_col = 0;
-    var run_color = FG;
+    var run_color = theme.fg;
     var span = 0;
     var col = 0;
     var i = 0;
     while i < line.len && col < last_col {
         let cp, n = decode(line, i);
         while span < spans.len && spans[span].start + spans[span].len <= i { span++; }
-        let color = if span < spans.len && spans[span].start <= i { TOKEN_COLORS[spans[span].kind] } else { FG };
+        let color = if span < spans.len && spans[span].start <= i { theme.tokens[spans[span].kind] } else { theme.fg };
         if run_from >= 0 && color != run_color {
             draw_str(c, f, cell_x(v, run_col), y, line[run_from..i], run_color);
             run_from = -1;
@@ -179,16 +135,16 @@ fn draw_line(c: ui::Context, f: Face, v: View&, line: const u8[:], y: f32, spans
                 if cp == '\t' {
                     let mid = y + round(f.line_h * 0.5);
                     ui::stroke_line(c, x + f.cell_w * 0.25, mid, x + w * f.cell_w - f.cell_w * 0.25, mid,
-                                    max(round(f.cell_w * 0.1), 1.0), INVISIBLE);
+                                    max(round(f.cell_w * 0.1), 1.0), theme.invisible);
                 } else if cp == ' ' {
                     let d = max(round(f.cell_w * 0.2), 2.0);
-                    ui::fill_rect(c, ui::rect(x + (f.cell_w - d) * 0.5, y + (f.line_h - d) * 0.5, d, d), 0.0, INVISIBLE);
+                    ui::fill_rect(c, ui::rect(x + (f.cell_w - d) * 0.5, y + (f.line_h - d) * 0.5, d, d), 0.0, theme.invisible);
                 } else if cp == 0x3000 {
                     let inset = round(f.cell_w * 0.2);
                     ui::stroke_rect(c, ui::rect(x + inset, y + inset * 2.0, w * f.cell_w - inset * 2.0, f.line_h - inset * 4.0),
-                                    0.0, max(round(f.cell_w * 0.1), 1.0), INVISIBLE);
+                                    0.0, max(round(f.cell_w * 0.1), 1.0), theme.invisible);
                 } else if cp < 0x20 || cp == 0x7F || cp == 0xFFFD {
-                    ui::stroke_rect(c, ui::rect(x + 1.0, y + 2.0, f.cell_w - 2.0, f.line_h - 4.0), 0.0, 1.0, NOTICE);
+                    ui::stroke_rect(c, ui::rect(x + 1.0, y + 2.0, f.cell_w - 2.0, f.line_h - 4.0), 0.0, 1.0, theme.notice);
                 } else if w > 0 {
                     draw_str(c, f, x, y, line[i..i + n], color);
                 }
@@ -235,7 +191,7 @@ fn draw_text_area(c: ui::Context, f: Face, ed: Editor&, v: View&, hl: Highlight&
         read_line(t, n, line);
         let le = ls + line.len;
         if n == current && is_empty(p) {
-            ui::fill_rect(c, ui::rect(v.panel_w, y, w - v.panel_w, f.line_h), 0.0, CURRENT_LINE);
+            ui::fill_rect(c, ui::rect(v.panel_w, y, w - v.panel_w, f.line_h), 0.0, theme.current_line);
         }
         // Matches of the search, on this line.
         if v.bar == BAR_FIND && v.query.len > 0 {
@@ -244,20 +200,20 @@ fn draw_text_area(c: ui::Context, f: Face, ed: Editor&, v: View&, hl: Highlight&
                 let k = find(line[at..], v.query);
                 if k < 0 { break; }
                 let ca, cb, past = span_cols(line, ls, ls + at + k, ls + at + k + v.query.len);
-                fill_cols(c, v, y, ca, cb, MATCH);
+                fill_cols(c, v, y, ca, cb, theme.match_bg);
                 at += k + v.query.len;
             }
         }
         for s in ed.sels {
             if is_empty(s) || hi(s) < ls || lo(s) > le { continue; }
             let ca, cb, past = span_cols(line, ls, lo(s), hi(s));
-            fill_cols(c, v, y, ca, if past { cb + 1 } else { cb }, SELECTION);
+            fill_cols(c, v, y, ca, if past { cb + 1 } else { cb }, theme.selection);
         }
         // The line number, right-aligned in the gutter.
         num.clear();
         format(num, n + 1);
         let nx = v.text_x - (num.len + 1) * f.cell_w;
-        draw_str(c, f, nx, y, num, if n == current { GUTTER_FG_CURRENT } else { GUTTER_FG });
+        draw_str(c, f, nx, y, num, if n == current { theme.gutter_fg_current } else { theme.gutter_fg });
         // The state the line starts in: known, or carried on from the row above.
         let known, is_known = state_at(hl, n);
         if is_known { state = known; }
@@ -269,7 +225,7 @@ fn draw_text_area(c: ui::Context, f: Face, ed: Editor&, v: View&, hl: Highlight&
                 if s.head < ls || s.head > le { continue; }
                 let col = advance(line[..s.head - ls], 0);
                 if col < v.left || col > v.left + v.cols { continue; }
-                ui::fill_rect(c, ui::rect(cell_x(v, col) - 1.0, y, max(round(f.cell_w * 0.22), 2.0), f.line_h), 0.0, CARET);
+                ui::fill_rect(c, ui::rect(cell_x(v, col) - 1.0, y, max(round(f.cell_w * 0.22), 2.0), f.line_h), 0.0, theme.caret);
             }
         }
     }
@@ -279,7 +235,7 @@ fn draw_bars(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32, h: f32) {
     var y = h - f.line_h;
     var s: u8[>..] = [];
     // The status bar: the file, the caret, and what the file is made of.
-    ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, BAR_BG);
+    ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, theme.bar_bg);
     let p = primary(ed);
     let n = line_of(ed.t, p.head);
     s.append(if v.path.len > 0 { v.path[..] } else { "(無題)" });
@@ -292,27 +248,27 @@ fn draw_bars(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32, h: f32) {
     if v.info.bom { s.append(" BOM"); }
     s.append(if ed.crlf { "   CRLF" } else { "   LF" });
     s.append(if ed.tabs { "   タブ" } else { "   スペース" });
-    draw_str(c, f, f.cell_w, y, s, BAR_FG);
+    draw_str(c, f, f.cell_w, y, s, theme.bar_fg);
     if v.message.len > 0 && clock() - v.message_at < 4.0 {
         let mw = advance(v.message, 0) + 2;
         let x = max(w - mw * f.cell_w, w * 0.5);
-        ui::fill_rect(c, ui::rect(x - f.cell_w, y, w - x + f.cell_w, f.line_h), 0.0, BAR_BG);
-        draw_str(c, f, x, y, v.message, NOTICE);
+        ui::fill_rect(c, ui::rect(x - f.cell_w, y, w - x + f.cell_w, f.line_h), 0.0, theme.bar_bg);
+        draw_str(c, f, x, y, v.message, theme.notice);
     }
     if v.bar == BAR_NONE { return; }
     // The field above it: search, or where to save.
     y -= f.line_h;
-    ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, FIELD_BG);
+    ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, theme.field_bg);
     s.clear();
     s.append(if v.bar == BAR_FIND { "検索: " } else { "保存先: " });
     s.append(v.query);
-    draw_str(c, f, f.cell_w, y, s, FG);
+    draw_str(c, f, f.cell_w, y, s, theme.fg);
     let caret_col = advance(s, 0);
-    ui::fill_rect(c, ui::rect((caret_col + 1) * f.cell_w, y, max(round(f.cell_w * 0.22), 2.0), f.line_h), 0.0, CARET);
+    ui::fill_rect(c, ui::rect((caret_col + 1) * f.cell_w, y, max(round(f.cell_w * 0.22), 2.0), f.line_h), 0.0, theme.caret);
     if v.bar == BAR_FIND {
         let hint = "Enter: 次   Shift+Enter: 前   Esc: 閉じる";
         let hx = w - (advance(hint, 0) + 2) * f.cell_w;
-        if hx > (caret_col + 4) * f.cell_w { draw_str(c, f, hx, y, hint, HINT_FG); }
+        if hx > (caret_col + 4) * f.cell_w { draw_str(c, f, hx, y, hint, theme.hint_fg); }
     }
 }
 
@@ -329,20 +285,20 @@ fn tree_row_at(v: View&, tr: Tree&, p: float2) -> i64 {
 // the file being edited is marked.
 fn draw_tree(c: ui::Context, f: Face, v: View&, tr: Tree&) {
     let pw = v.panel_w;
-    ui::fill_rect(c, ui::rect(0.0, 0.0, pw, v.tree_bottom), 0.0, PANEL_BG);
-    ui::fill_rect(c, ui::rect(pw - 1.0, 0.0, 1.0, v.tree_bottom), 0.0, PANEL_EDGE);
+    ui::fill_rect(c, ui::rect(0.0, 0.0, pw, v.tree_bottom), 0.0, theme.panel_bg);
+    ui::fill_rect(c, ui::rect(pw - 1.0, 0.0, 1.0, v.tree_bottom), 0.0, theme.panel_edge);
     var s: u8[>..] = [];
     let root = tr.root[..];
     let k = rfind(root, "/");
     fit(if k < 0 || k == root.len - 1 { root } else { root[k + 1..] }, tr.width - 2, s);
-    draw_str(c, f, f.cell_w, v.tree_y, s, HINT_FG);
+    draw_str(c, f, f.cell_w, v.tree_y, s, theme.hint_fg);
     for row in v.tree_rows {
         let i = tr.top + row;
         if i >= tr.rows.len { break; }
         let e = tr.rows[i];
         let y = v.tree_y + (row + 1) * f.line_h;
         if !e.is_dir && path_of(tr, e) == v.path[..] {
-            ui::fill_rect(c, ui::rect(0.0, y, pw - 1.0, f.line_h), 0.0, PANEL_CURRENT);
+            ui::fill_rect(c, ui::rect(0.0, y, pw - 1.0, f.line_h), 0.0, theme.panel_current);
         }
         let indent = 1 + e.depth * 2;
         if e.is_dir {
@@ -350,12 +306,13 @@ fn draw_tree(c: ui::Context, f: Face, v: View&, tr: Tree&) {
             let cx = (indent + 0.5) * f.cell_w;
             let cy = y + f.line_h * 0.5;
             let r = f.cell_w * 0.35;
-            if e.open { ui::fill_triangle(c, cx - r, cy - r * 0.6, cx + r, cy - r * 0.6, cx, cy + r * 0.8, HINT_FG); }
-            else { ui::fill_triangle(c, cx - r * 0.6, cy - r, cx - r * 0.6, cy + r, cx + r * 0.8, cy, HINT_FG); }
+            if e.open { ui::fill_triangle(c, cx - r, cy - r * 0.6, cx + r, cy - r * 0.6, cx, cy + r * 0.8, theme.hint_fg); }
+            else { ui::fill_triangle(c, cx - r * 0.6, cy - r, cx - r * 0.6, cy + r, cx + r * 0.8, cy, theme.hint_fg); }
         }
         s.clear();
         fit(name_of(tr, e), tr.width - indent - 3, s);
-        draw_str(c, f, (indent + 2) * f.cell_w, y, s, if e.is_dir { DIR_FG } else { FG });
+        let label = if e.is_dir { theme.tree_dir_fg } else if path_of(tr, e) == v.path[..] { theme.tree_current_fg } else { theme.tree_fg };
+        draw_str(c, f, (indent + 2) * f.cell_w, y, s, label);
     }
 }
 
