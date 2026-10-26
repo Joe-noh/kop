@@ -1,19 +1,19 @@
-# weigh
+# kop
 
 ## ビルド
 
 ```bash
-goose build weigh.goose && ./weigh path/to/file.txt
+goose build kop.goose && ./kop path/to/file.txt
 ```
 
 ```bash
-goose weigh.goose -- path/to/file.txt
+goose kop.goose -- path/to/file.txt
 ```
 
 ## 構成
 
 ```
-weigh.goose        起動、メインループ
+kop.goose          起動、メインループ
 core/text.goose    piece table（元ファイルと追記バッファ、改行の索引）
 core/select.goose  複数の選択範囲
 core/undo.goose    undo/redo
@@ -22,7 +22,7 @@ core/motion.goose  カーソル移動（文字・単語・行・上下）
 core/utf8.goose    UTF-8 と文字種
 core/width.goose   文字幅（セル数）
 core/doc.goose     BOM・改行コード・インデントの検出と保存
-core/settings.goose 設定ファイル（~/.weigh/settings.json と、プロジェクトの .weigh/settings.json）
+core/settings.goose 設定ファイル（~/.kop/settings.json と、プロジェクトの .kop/settings.json）
 view/              描画、入力、フォント、ファイルツリー、SDL まわり、テスト用の入力再生
 ```
 
@@ -35,5 +35,5 @@ view/              描画、入力、フォント、ファイルツリー、SDL 
 画面まわりは、ウィンドウなしで入力を再生して確かめられます（書式は `view/script.goose` の先頭に書いてあります）:
 
 ```bash
-GOOSE_GFX_HEADLESS=1 ./weigh file.txt --script script.txt --profile
+GOOSE_GFX_HEADLESS=1 ./kop file.txt --script script.txt --profile
 ```

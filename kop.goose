@@ -1,7 +1,7 @@
-// weigh: a text editor.
+// kop: a text editor.
 //
-//   goose weigh.goose -- [file or directory]                run it in the compiler
-//   goose build weigh.goose && ./weigh [file or directory]  or build it
+//   goose kop.goose -- [file or directory]              run it in the compiler
+//   goose build kop.goose && ./kop [file or directory]  or build it
 //
 // A directory shows as a tree on the left, whose files open on a click.
 // Options after the path: --script <file> plays input back (view/script.goose),
@@ -36,21 +36,21 @@ fn basename(path: const u8[:]) -> const u8[:] {
     if k < 0 { path } else { path[k + 1..] }
 }
 
-// A modified document the window was closed on goes to ~/.weigh/recovery,
+// A modified document the window was closed on goes to ~/.kop/recovery,
 // since closing cannot be refused.
 fn keep_recovery(ed: Editor&, v: View&) {
     var home: u8[>..] = [];
     if !env("HOME", home) { return; }
-    let dir = str(home, "/.weigh");
+    let dir = str(home, "/.kop");
     let rec = str(dir, "/recovery");
     if !make_dir(dir) || !make_dir(rec) { return; }
     let name = if v.path.len > 0 { basename(v.path) } else { "untitled" };
     let path = str(rec, "/", name, ".", time() as i64);
-    if save(ed.t, v.info, path) { write_stderr(str("weigh: unsaved changes kept in ", path, "\n")); }
+    if save(ed.t, v.info, path) { write_stderr(str("kop: unsaved changes kept in ", path, "\n")); }
 }
 
 fn title_of(v: View&, dirty: bool) -> u8[>..] {
-    str(if dirty { "● " } else { "" }, if v.path.len > 0 { basename(v.path) } else { "(無題)" }, " — weigh")
+    str(if dirty { "● " } else { "" }, if v.path.len > 0 { basename(v.path) } else { "(無題)" }, " — kop")
 }
 
 // What outlives one document: the window, its font and ui, and how the run
@@ -188,7 +188,7 @@ fn main() {
     var problems: u8[>..] = [];
     let settings = load_settings(path_arg, problems);
 
-    guard gfx::open("weigh", 1100, 760, gfx::WINDOW_RESIZABLE) else {
+    guard gfx::open("kop", 1100, 760, gfx::WINDOW_RESIZABLE) else {
         abort(str("gfx: ", gfx::error()));
     }
     let win = sdl_window();
@@ -199,7 +199,7 @@ fn main() {
     guard text_ok else { abort(str("font: ", ui::error())); }
     let ui_face, ui_ok = load_face(ui_fonts, round(settings.ui_font_size * density), problems);
     guard ui_ok else { abort(str("font: ", ui::error())); }
-    if problems.len > 0 { write_stderr(str("weigh: ", problems, "\n")); }
+    if problems.len > 0 { write_stderr(str("kop: ", problems, "\n")); }
     let f = Fonts { text: text_face, ui: ui_face };
     learn_widths(f.text);
     let c = ui::create_context(f.ui.parts[0]);

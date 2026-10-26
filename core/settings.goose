@@ -1,5 +1,5 @@
 // Settings, from JSON files read one over another: the defaults, then
-// ~/.weigh/settings.json, then the project's .weigh/settings.json. A file
+// ~/.kop/settings.json, then the project's .kop/settings.json. A file
 // sets only what it names.
 //
 //   {
@@ -118,9 +118,9 @@ fn project_dir(path: const u8[:], out: u8[>..]&) {
 fn load_settings(path: const u8[:], problems: u8[>..]&) -> Settings {
     var s = Settings {};
     var home: u8[>..] = [];
-    if env("HOME", home) { load_settings_file(s, str(home, "/.weigh/settings.json"), problems); }
+    if env("HOME", home) { load_settings_file(s, str(home, "/.kop/settings.json"), problems); }
     var dir: u8[>..] = [];
     project_dir(path, dir);
-    if dir.len > 0 { load_settings_file(s, str(dir, "/.weigh/settings.json"), problems); }
+    if dir.len > 0 { load_settings_file(s, str(dir, "/.kop/settings.json"), problems); }
     return s;
 }

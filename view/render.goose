@@ -316,7 +316,7 @@ fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&, tr: Tree&) {
     let size = gfx::screen_size();
     let w: f32 = size.x;
     let h: f32 = size.y;
-    if ui::begin(c, "weigh", ui::rect(0.0, 0.0, w, h), ui::WINDOW_NO_SCROLLBAR | ui::WINDOW_NO_INPUT) {
+    if ui::begin(c, "kop", ui::rect(0.0, 0.0, w, h), ui::WINDOW_NO_SCROLLBAR | ui::WINDOW_NO_INPUT) {
         if tr.shown { draw_tree(c, f.ui, v, tr); }
         draw_text_area(c, f.text, ed, v, w);
         draw_bars(c, f.ui, ed, v, w, h);
