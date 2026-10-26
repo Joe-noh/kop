@@ -36,7 +36,7 @@ struct View {
     tree_bottom: f32 = 0.0,
     tree_rows: i64 = 1,             // entry rows that fit below the header
     follow: bool = true,            // scroll to the primary caret at the next draw
-    wheel: f32 = 0.0,               // scrolling not yet a whole line
+    scroll_y: f32 = 0.0,            // how far the top line is scrolled up out of view, in pixels
     drag: i64 = DRAG_NONE,
     drag_a: i64 = 0,                // the word or line first clicked, for drags by words or lines
     drag_b: i64 = 0,

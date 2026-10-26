@@ -68,8 +68,12 @@ struct App {
     profile: bool,
     notice: u8[..240],      // for the status bar of the first document: what was wrong with the settings
     started: f64,
-    frame_time: f64,
+    frame_time: f64,       // the work of a frame, from input to handing the GPU its commands
     slowest: f64,
+    draw_time: f64,        // of which laying out the window's drawing
+    render_time: f64,      // and converting it to triangles and submitting them
+    frame_gap: f64,        // from one frame's start to the next, waiting for the display included
+    last_start: f64,
 }
 
 // Edits the file at `path` (none: an untitled document) until the window
@@ -133,16 +137,20 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
                 say(v, "未保存の変更があります（もう一度クリックで破棄して開く）");
             }
         }
+        let draw_start = clock();
         draw(app.c, app.f, ed, v, tr);
+        app.draw_time += clock() - draw_start;
         gfx::begin_screen(float4 { 0.118, 0.122, 0.133, 1.0 });
         gfx::end_pass();
+        let render_start = clock();
         ui::render(app.c);
+        app.render_time += clock() - render_start;
 
         // The input method's candidates open at the primary caret.
         let head = primary(ed).head;
         let n = line_of(ed.t, head);
         let cx = cell_x(v, col_of(ed.t, head));
-        let cy = v.text_y + (n - v.top) * v.line_h;
+        let cy = v.text_y + (n - v.top) * v.line_h - v.scroll_y;
         if cx != ime_x || cy != ime_y {
             set_ime_caret(app.win, app.density, cx, cy, v.line_h);
             ime_x = cx;
@@ -153,12 +161,18 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
             gfx::set_title(title_of(v, dirty));
             was_dirty = dirty;
         }
+        if app.last_start > 0.0 { app.frame_gap += frame_start - app.last_start; }
+        app.last_start = frame_start;
         let spent = clock() - frame_start;
         app.frame_time += spent;
         app.slowest = max(app.slowest, spent);
         if app.drawn == 0 && app.profile { write_stderr(str("first frame after ", clock() - app.started, " s\n")); }
         app.drawn++;
         if app.scripted && !step(script) { done = true; }
+        if script.wheel != 0.0 {
+            v.scroll_y -= script.wheel * 3.0 * v.line_h;
+            script.wheel = 0.0;
+        }
         if app.drawn == app.frames { done = true; }
     }
     if modified(ed.h) { keep_recovery(ed, v); }
@@ -202,13 +216,16 @@ fn main() {
     if problems.len > 0 { write_stderr(str("kop: ", problems, "\n")); }
     let f = Fonts { text: text_face, ui: ui_face };
     learn_widths(f.text);
+    measure_insets(f.text);
+    measure_insets(f.ui);
     let c = ui::create_context(f.ui.parts[0]);
     guard c.id != 0 else { abort(str("ui: ", ui::error())); }
     style_window(c);
     gfx::text_input(true);
     var app = App { c: c, f: f, win: win, density: density, k: keys(), mac: gfx::driver() == "metal",
                     scripted: script_path.len > 0, frames: frames, drawn: 0, profile: profile,
-                    notice: [], started: clock(), frame_time: 0.0, slowest: 0.0 };
+                    notice: [], started: clock(), frame_time: 0.0, slowest: 0.0,
+                    draw_time: 0.0, render_time: 0.0, frame_gap: 0.0, last_start: 0.0 };
     var cut = min(problems.len, 240);
     while cut < problems.len && cut > 0 && is_cont(problems[cut]) { cut--; }
     app.notice.append(problems[..cut]);
@@ -224,8 +241,10 @@ fn main() {
     while !edit_file(app, tr, script, current, next) { current = next; }
 
     if profile && app.drawn > 0 {
-        write_stderr(str(app.drawn, " frames: ", app.frame_time / app.drawn * 1000.0, " ms of work each on average, slowest ",
-                         app.slowest * 1000.0, " ms\n"));
+        let ms = 1000.0 / app.drawn;
+        write_stderr(str(app.drawn, " frames: ", app.frame_time * ms, " ms of work each on average (draw ",
+                         app.draw_time * ms, ", render ", app.render_time * ms, "), slowest ",
+                         app.slowest * 1000.0, " ms; a frame every ", app.frame_gap * ms, " ms\n"));
     }
     ui::destroy(c);
     gfx::close();

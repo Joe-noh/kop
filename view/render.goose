@@ -80,21 +80,26 @@ fn layout(ed: Editor&, v: View&, tr: Tree&, f: Fonts) {
 fn follow_caret(ed: Editor&, v: View&) {
     let head = primary(ed).head;
     let n = line_of(ed.t, head);
-    if n < v.top { v.top = n; }
-    if n >= v.top + v.rows { v.top = n - v.rows + 1; }
+    if n < v.top || (n == v.top && v.scroll_y > 0.0) { v.top = n; v.scroll_y = 0.0; }
+    if n >= v.top + v.rows { v.top = n - v.rows + 1; v.scroll_y = 0.0; }
     let col = col_of(ed.t, head);
     if col < v.left { v.left = max(col - 8, 0); }
     if col >= v.left + v.cols { v.left = col - v.cols + 8; }
 }
 
 fn clamp_scroll(ed: Editor&, v: View&) {
-    v.top = clamp(v.top, 0, ed.t.lf);
+    // Whole lines of the pixel scroll go into the top line.
+    let lines = floor(v.scroll_y / v.line_h);
+    v.top += lines as i64;
+    v.scroll_y -= lines * v.line_h;
+    if v.top < 0 { v.top = 0; v.scroll_y = 0.0; }
+    if v.top >= ed.t.lf { v.top = ed.t.lf; v.scroll_y = 0.0; }
     v.left = max(v.left, 0);
 }
 
 // The offset nearest to a point in pixels, clamped to the text area.
 fn hit(ed: Editor&, v: View&, p: float2) -> i64 {
-    let row = floor((p.y - v.text_y) / v.line_h) as i64;
+    let row = floor((p.y - v.text_y + v.scroll_y) / v.line_h) as i64;
     let n = clamp(v.top + row, 0, ed.t.lf);
     var line: u8[>..] = [];
     read_line(ed.t, n, line);
@@ -104,9 +109,9 @@ fn hit(ed: Editor&, v: View&, p: float2) -> i64 {
 
 fn cell_x(v: View&, col: i64) -> f32 { v.text_x + (col - v.left) * v.cell_w }
 
-// One line of text at row `y`: runs of ordinary half-width characters are
-// drawn together, wide ones one at a time on their two cells, and the
-// invisible ones as marks.
+// One line of text at row `y`: runs of ordinary characters go to
+// draw_str together, which keeps them on the grid, and the invisible ones
+// are drawn as marks.
 fn draw_line(c: ui::Context, f: Face, v: View&, line: const u8[:], y: f32) {
     // Where the trailing blanks start, which get marks.
     var blank_from = line.len;
@@ -119,7 +124,8 @@ fn draw_line(c: ui::Context, f: Face, v: View&, line: const u8[:], y: f32) {
     while i < line.len && col < last_col {
         let cp, n = decode(line, i);
         let w = if cp == '\t' { TAB_SIZE - col % TAB_SIZE } else { cell_width(cp) };
-        let plain = w == 1 && cp >= 0x20 && cp != 0x7F && cp != 0xFFFD && !(cp == ' ' && i >= blank_from);
+        let plain = w >= 1 && cp >= 0x20 && cp != 0x7F && cp != 0xFFFD && cp != 0x3000 && cp != '\t' &&
+                    !(cp == ' ' && i >= blank_from);
         if plain && col >= v.left {
             if run_from < 0 { run_from = i; run_col = col; }
         } else if w == 0 && run_from >= 0 {
@@ -178,10 +184,11 @@ fn draw_text_area(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32) {
     let blink_on = (clock() - v.blink_at) % 1.1 < 0.65 || clock() - v.blink_at < 0.6;
     var line: u8[>..] = [];
     var num: u8[>..] = [];
-    for row in v.rows {
+    // One more row than fits: when scrolled part of a line, it shows at the bottom.
+    for row in v.rows + 1 {
         let n = v.top + row;
         if n > t.lf { break; }
-        let y = v.text_y + row * f.line_h;
+        let y = v.text_y + row * f.line_h - v.scroll_y;
         let ls = line_start(t, n);
         line.clear();
         read_line(t, n, line);
@@ -308,11 +315,12 @@ fn draw_tree(c: ui::Context, f: Face, v: View&, tr: Tree&) {
 
 fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&, tr: Tree&) {
     layout(ed, v, tr, f);
+    clamp_scroll(ed, v);
     if v.follow {
         follow_caret(ed, v);
         v.follow = false;
+        clamp_scroll(ed, v);
     }
-    clamp_scroll(ed, v);
     let size = gfx::screen_size();
     let w: f32 = size.x;
     let h: f32 = size.y;

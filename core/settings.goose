@@ -4,7 +4,7 @@
 //
 //   {
 //     "editor": { "fontSize": 14, "fontFamily": ["Menlo", "ヒラギノ角ゴシック W3"] },
-//     "ui": { "fontSize": 11 }
+//     "ui": { "fontSize": 13 }
 //   }
 //
 // A font is a file name among the system's fonts, with or without its

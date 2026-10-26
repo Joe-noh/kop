@@ -278,7 +278,7 @@ fn test_settings() {
     var s = Settings {};
     var problems: u8[>..] = [];
     check(apply_settings(s, """{ "editor": { "fontSize": 18 } }""", problems) && problems.len == 0, "editor size");
-    check(s.editor_font_size == 18.0 && s.ui_font_size == 11.0, "only what the file names changes");
+    check(s.editor_font_size == 18.0 && s.ui_font_size == 13.0, "only what the file names changes");
     check(apply_settings(s, """{ "ui": { "fontSize": 11.5 } }""", problems), "ui size over the first");
     check(s.editor_font_size == 18.0 && s.ui_font_size == 11.5, "files layer");
     check(apply_settings(s, """{ "ui": { "fontSize": 100, "theme": "x" }, "other": 1 }""", problems), "problems are not fatal");

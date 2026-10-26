@@ -4,6 +4,7 @@
 //   text 日本語          typed text
 //   key Return           a key pressed and released; "key Left GUI+S" holds the first ones
 //   click 120 40 [2]     the left button at a pixel, clicked once or more
+//   wheel -0.25          the wheel turned, as a trackpad turns it (gfx cannot fake this)
 //   wait 10              ten frames of nothing
 //   shot out.png         the screen, saved
 //   quit
@@ -17,6 +18,7 @@ struct Script {
     next: i64 = 0,
     wait: i64 = 0,
     done: bool = false,
+    wheel: f32 = 0.0,       // turned since the program last took it
 }
 
 fn press(names: const u8[:]) {
@@ -52,6 +54,7 @@ fn step(s: Script&) -> bool {
         }
     }
     else if cmd == "wait" { let n, ok = parse_int(arg); s.wait = n; }
+    else if cmd == "wheel" { let d, ok = parse_flt(arg); s.wheel += d as f32; }
     else if cmd == "shot" { gfx::screenshot(arg); }
     else if cmd == "quit" { s.done = true; return false; }
     else if cmd.len > 0 && cmd[0] != '#' { write_stderr(str("script: unknown command: ", line, "\n")); }

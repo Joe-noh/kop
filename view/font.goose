@@ -24,6 +24,11 @@ let WANTED_RANGES: u32[14] = [0x20, 0xFF, 0x370, 0x4FF, 0x2000, 0x27BF, 0x3000, 
 let MAX_PARTS = 16;
 let MAX_ATLAS_HEIGHT = 16384;
 let NO_PART: u8 = 255;
+// Nuklear finds a glyph by going through its font's ranges one by one, so
+// ranges a few characters apart are baked as one, the characters between
+// them included: a font that lacks a scattering of kanji would otherwise
+// come in thousands of ranges and every glyph drawn would search them.
+let RANGE_GAP: u32 = 16;
 
 struct Face {
     parts: ui::Font[16],
@@ -40,6 +45,11 @@ struct Fonts { text: Face, ui: Face }
 
 // For each face, 0x10000 entries: the part that draws each codepoint, or NO_PART.
 var glyph_part: u8[>..] = [];
+// For each face, the same: how far the glyph is from the left of its cells
+// when centered in them, or ON_GRID for one whose advance is its cells'
+// width, which is drawn in runs with its neighbors.
+var glyph_inset: f32[>..] = [];
+let ON_GRID: f32 = -1.0;
 
 fn part_of(face: Face, cp: u32) -> i64 {
     if cp >= 0x10000 { return -1; }
@@ -53,7 +63,7 @@ fn font_for(face: Face, cp: u32) -> ui::Font {
 }
 
 // Bakes `chars` (ascending) into `n` atlases from part face.count on.
-fn bake_shards(ttf: const u8[:], px: f32, chars: const u32[:], n: i64, face: Face&) -> bool {
+fn bake_shards(ttf: const u8[:], px: f32, cfg: ui::FontConfig, chars: const u32[:], n: i64, face: Face&) -> bool {
     let per = (chars.len + n - 1) / n;
     for k in n {
         let chunk = chars[min(k * per, chars.len)..min((k + 1) * per, chars.len)];
@@ -62,7 +72,7 @@ fn bake_shards(ttf: const u8[:], px: f32, chars: const u32[:], n: i64, face: Fac
         var i = 0;
         while i < chunk.len {
             var j = i;
-            while j + 1 < chunk.len && chunk[j + 1] == chunk[j] + 1 { j++; }
+            while j + 1 < chunk.len && chunk[j + 1] <= chunk[j] + RANGE_GAP + 1 { j++; }
             ranges.push(chunk[i]);
             ranges.push(chunk[j]);
             if chunk[i] <= '?' && chunk[j] >= '?' { has_fallback = true; }
@@ -72,7 +82,7 @@ fn bake_shards(ttf: const u8[:], px: f32, chars: const u32[:], n: i64, face: Fac
         let a = ui::create_font_atlas();
         face.atlases[face.count] = a;
         face.count++;
-        let f = ui::add_font_from_memory(a, ttf, px, ui::FontConfig {}, ranges);
+        let f = ui::add_font_from_memory(a, ttf, px, cfg, ranges);
         if f.id == 0 || !ui::bake(a) || ui::atlas_size(a).y > MAX_ATLAS_HEIGHT { return false; }
         face.parts[face.count - 1] = f;
         for cp in chunk { glyph_part[face.table + cp] = (face.count - 1) as u8; }
@@ -90,10 +100,26 @@ fn add_font(face: Face&, ttf: const u8[:], px: f32, has: u8[>..]&) -> bool {
         }
     }
     if chars.len == 0 { return true; }
+    if face.count == 0 { return bake_group(face, ttf, px, ui::FontConfig {}, chars); }
+    // A later font, most likely a Japanese one: its wide characters are
+    // baked a little apart, so that each advances by exactly two of the
+    // first font's cells and a run of them stays on the grid.
+    let cell_w = ui::text_width(face.parts[0], "M");
+    var wide: u32[>..] = [];
+    var narrow: u32[>..] = [];
+    for cp in chars { if eaw_width(cp) == 2 { wide.push(cp); } else { narrow.push(cp); } }
+    var spaced = ui::FontConfig {};
+    spaced.spacing = float2 { 2.0 * cell_w - px, 0.0 };
+    return bake_group(face, ttf, px, spaced, wide) && bake_group(face, ttf, px, ui::FontConfig {}, narrow);
+}
+
+// Bakes `chars` in as few atlases as they fit.
+fn bake_group(face: Face&, ttf: const u8[:], px: f32, cfg: ui::FontConfig, chars: const u32[:]) -> bool {
+    if chars.len == 0 { return true; }
     let first = face.count;
     var n = 1;
     while first + n <= MAX_PARTS {
-        if bake_shards(ttf, px, chars, n, face) { return true; }
+        if bake_shards(ttf, px, cfg, chars, n, face) { return true; }
         for k in first..face.count { ui::destroy(face.atlases[k]); }
         face.count = first;
         for cp in chars { glyph_part[face.table + cp] = NO_PART; }
@@ -109,6 +135,7 @@ fn load_face(names: const u8[:], px: f32, problems: u8[>..]&) -> Face, bool {
     var face = default<Face>();
     face.table = glyph_part.len;
     glyph_part.resize(face.table + 0x10000, NO_PART);
+    glyph_inset.resize(face.table + 0x10000, 0.0);
     var has: u8[>..] = [];
     var path: u8[>..] = [];
     var raw: u8[>..] = [];
@@ -146,6 +173,19 @@ fn load_face(names: const u8[:], px: f32, problems: u8[>..]&) -> Face, bool {
     return face, true;
 }
 
+// Finds which characters advance by exactly their cells, and how far to
+// move the others to center them.
+fn measure_insets(face: Face) {
+    for cp: u32 in 0..0x10000 {
+        let p = part_of(face, cp);
+        if p >= 0 {
+            let g, own = ui::find_glyph(face.parts[p], cp);
+            let room = cell_width(cp) * face.cell_w;
+            glyph_inset[face.table + cp] = if abs(room - g.xadvance) < 0.01 { ON_GRID } else { max((room - g.xadvance) * 0.5, 0.0) };
+        }
+    }
+}
+
 // Records how many cells each character takes, from its advance.
 fn learn_widths(face: Face) {
     cell_widths.resize(0x10000, 0);
@@ -160,8 +200,9 @@ fn learn_widths(face: Face) {
 }
 
 // Draws `s` in a row of height face.line_h whose top is at `y`, on the
-// grid of cells: the first font's characters in runs, the others each
-// centered in its own cells.
+// grid of cells: characters that advance by their cells in runs, one draw
+// for each run within one atlas, and the others each centered in its own
+// cells.
 fn draw_str(c: ui::Context, face: Face, x: f32, y: f32, s: const u8[:], color: ui::Color) {
     let ty = y + round((face.line_h - face.cell_w * 2.0) * 0.5);
     let none = ui::Color { 0, 0, 0, 0 };
@@ -178,7 +219,7 @@ fn draw_str(c: ui::Context, face: Face, x: f32, y: f32, s: const u8[:], color: u
             cp, n = decode(s, i);
             p = max(part_of(face, cp), 0);
         }
-        let in_run = p >= 0 && p < face.primary;
+        let in_run = p >= 0 && cp < 0x10000 && glyph_inset[face.table + cp] == ON_GRID;
         if !in_run || p != run_part {
             if run_part >= 0 && i > run_from {
                 let f = face.parts[run_part];
@@ -192,11 +233,9 @@ fn draw_str(c: ui::Context, face: Face, x: f32, y: f32, s: const u8[:], color: u
         if i == s.len { break; }
         let w = cell_width(cp);
         if !in_run && w > 0 {
-            let f = face.parts[p];
-            let ch = s[i..i + n];
-            let gap = (w * face.cell_w - ui::text_width(f, ch)) * 0.5;
-            ui::draw_text(c, ui::rect(x + col * face.cell_w + max(gap, 0.0), ty + face.lift[p], (w + 1) * face.cell_w, face.line_h),
-                          ch, f, none, color);
+            let inset = if cp < 0x10000 { glyph_inset[face.table + cp] } else { 0.0 };
+            ui::draw_text(c, ui::rect(x + col * face.cell_w + inset, ty + face.lift[p], (w + 1) * face.cell_w, face.line_h),
+                          s[i..i + n], face.parts[p], none, color);
             run_from = i + n;
             run_col = col + w;
         }

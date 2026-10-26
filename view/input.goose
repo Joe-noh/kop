@@ -285,10 +285,8 @@ fn handle_input(ed: Editor&, v: View&, tr: Tree&, k: Keys, mac: bool) {
             tr.top -= rows as i64;
             tr.wheel -= rows;
         } else if e.kind == gfx::EVENT_MOUSE_WHEEL {
-            v.wheel += e.y * 3.0;
-            let lines = trunc(v.wheel);
-            v.top -= lines as i64;
-            v.wheel -= lines;
+            // Three lines a notch of a wheel; a trackpad's fractions scroll by pixels.
+            v.scroll_y -= e.y * 3.0 * v.line_h;
             v.left = max(v.left + round(e.x * 3.0) as i64, 0);
         }
     }
