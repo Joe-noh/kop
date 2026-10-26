@@ -8,6 +8,7 @@ import core.width;
 import core.utf8;
 import core.doc;
 import core.settings;
+import core.syntax;
 import view.fontfile;
 import os;
 
@@ -325,7 +326,64 @@ fn test_font_files() {
     check(has[0x3042] != 0 && has[0x6F22] != 0, "Hiragino has あ and 漢");
 }
 
+// The spans of `line` as "kind:text" words, for comparing.
+fn spans_of(line: const u8[:], state: u8, out: u8[>..]&) -> u8 {
+    var spans: Span[>..<] = [];
+    let next = lex_line(GOOSE, line, state, spans);
+    for s in spans { format(out, s.kind, ":", line[s.start..s.start + s.len], " "); }
+    return next;
+}
+
+fn test_syntax() {
+    use_language(GOOSE);
+    var out: u8[>..] = [];
+    var st = spans_of("fn main() -> i64 { let x = 0x1F + 2.5e-3; }", STATE_NORMAL, out);
+    check(out == "1:fn 7:main 2:i64 1:let 4:0x1F 4:2.5e-3 " && st == STATE_NORMAL, str("tokens: ", out));
+    out.clear();
+    spans_of("for i in 1..n { print(\"a\\\"b\", 'c', Point { true }); }  // done", STATE_NORMAL, out);
+    check(out == "1:for 1:in 4:1 7:print 5:\"a\\\"b\" 5:'c' 2:Point 3:true 6:// done ", str("strings and comments: ", out));
+    out.clear();
+    st = spans_of("x /* a /* b */ c", STATE_NORMAL, out);
+    check(st == 1 && out == "6:/* a /* b */ c ", str("nested comment left open: ", st, " ", out));
+    out.clear();
+    st = spans_of("d */ let", st, out);
+    check(st == STATE_NORMAL && out == "6:d */ 1:let ", str("comment closed on the next line: ", out));
+    out.clear();
+    st = spans_of("    let s = \"\"\"", STATE_NORMAL, out);
+    check(st == STATE_RAW, "raw string left open");
+    out.clear();
+    st = spans_of("  text \"\"\"; fn", STATE_RAW, out);
+    check(st == STATE_NORMAL && out == "5:  text \"\"\" 1:fn ", str("raw string closed: ", out));
+    out.clear();
+    spans_of("let MAX_SIZE: Point = A;", STATE_NORMAL, out);
+    check(out == "1:let 3:MAX_SIZE 2:Point 2:A ", str("constants and types by case: ", out));
+    let lang, found = language_for("dir/a.goose");
+    let none, not_found = language_for("dir.goose/README");
+    check(found && !not_found, "language by extension");
+
+    // The cache: states as lines start, extended on demand and cut at an edit.
+    let src = "a\n/* x\ny */\nb\n\"\"\"\nraw\n\"\"\"\nc";
+    var lf: i64[>..] = [];
+    index_lf(src, lf);
+    var add: u8[>..] = [];
+    var pieces: Piece[>..<] = [];
+    var t = text_new(src, lf, add, pieces);
+    var states: u8[>..<] = [];
+    var hl = highlight_new("x.goose", states);
+    check(highlight_extend(hl, t, 100, 1.0), "extended to the end");
+    var got: u8[>..] = [];
+    for s in hl.states { format(got, s, ","); }
+    check(got == "0,0,1,0,0,128,128,0,", str("line states: ", got));
+    insert(t, 0, "/*\n");
+    let d = take_dirty(t);
+    check(d == 0, "edit is dirty from 0");
+    highlight_edited(hl, t, d);
+    check(hl.states.len == 1, "edit cuts the cache");
+    check(highlight_extend(hl, t, 100, 1.0) && hl.states[1] == 1, "line after an opened comment");
+}
+
 fn main() {
+    test_syntax();
     test_font_files();
     test_settings();
     test_undo_fuzz();

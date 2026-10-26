@@ -26,6 +26,16 @@ struct Text {
     pieces: Piece[>..<]&,
     len: i64,
     lf: i64,
+    dirty_from: i64 = NOT_DIRTY,    // the first offset changed since the last take_dirty
+}
+
+let NOT_DIRTY: i64 = 0x7FFFFFFFFFFFFFFF;
+
+// Where the text first changed since the last call, or NOT_DIRTY.
+fn take_dirty(t: Text&) -> i64 {
+    let d = t.dirty_from;
+    t.dirty_from = NOT_DIRTY;
+    return d;
 }
 
 // Appends the offset of every '\n' in `s` to `out`.
@@ -111,6 +121,7 @@ fn merge_at(t: Text&, k: i64) {
 // Inserts the given pieces at `pos`.
 fn insert_pieces(t: Text&, pos: i64, ps: const Piece[:]) {
     if ps.len == 0 { return; }
+    t.dirty_from = min(t.dirty_from, pos);
     let k = split_at(t, pos);
     open_gap(t.pieces, k, ps.len);
     for p, i in ps {
@@ -138,6 +149,7 @@ fn insert(t: Text&, pos: i64, bytes: const u8[:]) -> i64 {
 // a Piece array of either growable kind.
 fn cut(t: Text&, pos: i64, len: i64, out) {
     if len <= 0 { return; }
+    t.dirty_from = min(t.dirty_from, pos);
     let a = split_at(t, pos);
     let b = split_at(t, pos + len);
     for i in a..b {

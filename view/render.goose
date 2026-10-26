@@ -14,26 +14,57 @@ import core.edit;
 import core.motion;
 import core.utf8;
 import core.width;
+import core.syntax;
 import view.state;
 import view.font;
 import view.tree;
 
-let BG = ui::Color { 30, 31, 34, 255 };
-let FG = ui::Color { 222, 222, 214, 255 };
-let GUTTER_FG = ui::Color { 104, 107, 114, 255 };
-let GUTTER_FG_CURRENT = ui::Color { 190, 190, 182, 255 };
-let CURRENT_LINE = ui::Color { 38, 40, 45, 255 };
-let SELECTION = ui::Color { 52, 80, 122, 255 };
-let MATCH = ui::Color { 96, 84, 34, 255 };
-let CARET = ui::Color { 255, 200, 60, 255 };
-let INVISIBLE = ui::Color { 78, 82, 90, 255 };       // tabs, trailing spaces, full-width spaces
-let BAR_BG = ui::Color { 22, 23, 25, 255 };
-let BAR_FG = ui::Color { 168, 168, 162, 255 };
-let NOTICE = ui::Color { 255, 190, 110, 255 };
-let PANEL_BG = ui::Color { 25, 26, 29, 255 };
-let PANEL_EDGE = ui::Color { 44, 46, 51, 255 };
-let PANEL_CURRENT = ui::Color { 44, 52, 66, 255 };
+// Flexoki dark (https://github.com/kepano/flexoki), as its Helix theme uses it.
+let BASE = ui::Color { 0x10, 0x0F, 0x0F, 255 };
+let BG_2 = ui::Color { 0x1C, 0x1B, 0x1A, 255 };
+let UI_2 = ui::Color { 0x28, 0x27, 0x26, 255 };
+let UI_3 = ui::Color { 0x34, 0x33, 0x31, 255 };
+let TX = ui::Color { 0xCE, 0xCD, 0xC3, 255 };
+let TX_1 = ui::Color { 0xB7, 0xB5, 0xAC, 255 };
+let TX_2 = ui::Color { 0x87, 0x85, 0x80, 255 };
+let TX_3 = ui::Color { 0x57, 0x56, 0x53, 255 };
+let ORANGE = ui::Color { 0xDA, 0x70, 0x2C, 255 };
+let YELLOW = ui::Color { 0xD0, 0xA2, 0x15, 255 };
+let GREEN = ui::Color { 0x87, 0x9A, 0x39, 255 };
+let CYAN = ui::Color { 0x3A, 0xA9, 0x9F, 255 };
+let BLUE = ui::Color { 0x43, 0x85, 0xBE, 255 };
+
+let BG = BASE;                      // ui.background
+let FG = TX;
+let GUTTER_FG = UI_3;               // ui.linenr
+let GUTTER_FG_CURRENT = CYAN;       // ui.linenr.selected
+let CURRENT_LINE = BG_2;            // ui.cursorline.primary
+let SELECTION = UI_3;               // ui.selection
+let MATCH = UI_2;
+let CARET = CYAN;                   // ui.cursor.primary
+let INVISIBLE = TX_3;               // ui.virtual: tabs, trailing spaces, full-width spaces
+let BAR_BG = BG_2;                  // ui.statusline
+let BAR_FG = TX_1;
+let FIELD_BG = UI_2;                // ui.popup: the search field
+let HINT_FG = TX_2;                 // ui.help
+let NOTICE = YELLOW;                // warning
+let PANEL_BG = BG_2;
+let PANEL_EDGE = UI_2;
+let PANEL_CURRENT = UI_2;           // ui.text.focus
+let DIR_FG = BLUE;                  // ui.text.directory
 let NONE = ui::Color { 0, 0, 0, 0 };
+
+// The colors of the syntax's token kinds, by TOK_* value.
+let TOKEN_COLORS: ui::Color[8] = [
+    TX,                             // text: variable
+    GREEN,                          // keyword
+    YELLOW,                         // type
+    ORANGE,                         // constant
+    ORANGE,                         // number: constant.numeric
+    CYAN,                           // string
+    TX_3,                           // comment (italic in Helix; ui has no italic)
+    ORANGE,                         // function
+];
 
 fn style_window(c: ui::Context) {
     var style = ui::style(c);
@@ -109,30 +140,38 @@ fn hit(ed: Editor&, v: View&, p: float2) -> i64 {
 
 fn cell_x(v: View&, col: i64) -> f32 { v.text_x + (col - v.left) * v.cell_w }
 
-// One line of text at row `y`: runs of ordinary characters go to
-// draw_str together, which keeps them on the grid, and the invisible ones
-// are drawn as marks.
-fn draw_line(c: ui::Context, f: Face, v: View&, line: const u8[:], y: f32) {
+// One line of text at row `y`: runs of ordinary characters of one color
+// go to draw_str together, which keeps them on the grid, and the invisible
+// ones are drawn as marks. `spans` color the line, in order.
+fn draw_line(c: ui::Context, f: Face, v: View&, line: const u8[:], y: f32, spans: const Span[:]) {
     // Where the trailing blanks start, which get marks.
     var blank_from = line.len;
     while blank_from > 0 && (line[blank_from - 1] == ' ' || line[blank_from - 1] == '\t') { blank_from--; }
     let last_col = v.left + v.cols;
     var run_from = -1;          // the byte where the pending run starts
     var run_col = 0;
+    var run_color = FG;
+    var span = 0;
     var col = 0;
     var i = 0;
     while i < line.len && col < last_col {
         let cp, n = decode(line, i);
+        while span < spans.len && spans[span].start + spans[span].len <= i { span++; }
+        let color = if span < spans.len && spans[span].start <= i { TOKEN_COLORS[spans[span].kind] } else { FG };
+        if run_from >= 0 && color != run_color {
+            draw_str(c, f, cell_x(v, run_col), y, line[run_from..i], run_color);
+            run_from = -1;
+        }
         let w = if cp == '\t' { TAB_SIZE - col % TAB_SIZE } else { cell_width(cp) };
         let plain = w >= 1 && cp >= 0x20 && cp != 0x7F && cp != 0xFFFD && cp != 0x3000 && cp != '\t' &&
                     !(cp == ' ' && i >= blank_from);
         if plain && col >= v.left {
-            if run_from < 0 { run_from = i; run_col = col; }
+            if run_from < 0 { run_from = i; run_col = col; run_color = color; }
         } else if w == 0 && run_from >= 0 {
             // A combining mark rides on the run.
         } else {
             if run_from >= 0 {
-                draw_str(c, f, cell_x(v, run_col), y, line[run_from..i], FG);
+                draw_str(c, f, cell_x(v, run_col), y, line[run_from..i], run_color);
                 run_from = -1;
             }
             if col >= v.left {
@@ -151,14 +190,14 @@ fn draw_line(c: ui::Context, f: Face, v: View&, line: const u8[:], y: f32) {
                 } else if cp < 0x20 || cp == 0x7F || cp == 0xFFFD {
                     ui::stroke_rect(c, ui::rect(x + 1.0, y + 2.0, f.cell_w - 2.0, f.line_h - 4.0), 0.0, 1.0, NOTICE);
                 } else if w > 0 {
-                    draw_str(c, f, x, y, line[i..i + n], FG);
+                    draw_str(c, f, x, y, line[i..i + n], color);
                 }
             }
         }
         col += w;
         i += n;
     }
-    if run_from >= 0 { draw_str(c, f, cell_x(v, run_col), y, line[run_from..i], FG); }
+    if run_from >= 0 { draw_str(c, f, cell_x(v, run_col), y, line[run_from..i], run_color); }
 }
 
 // The part of [a, b) on a line starting at `ls` with text `line`, as cell
@@ -177,13 +216,15 @@ fn fill_cols(c: ui::Context, v: View&, y: f32, ca: i64, cb: i64, color: ui::Colo
     if b > a { ui::fill_rect(c, ui::rect(cell_x(v, a), y, (b - a) * v.cell_w, v.line_h), 0.0, color); }
 }
 
-fn draw_text_area(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32) {
+fn draw_text_area(c: ui::Context, f: Face, ed: Editor&, v: View&, hl: Highlight&, w: f32) {
     let t = ed.t;
     let p = primary(ed);
     let current = line_of(t, p.head);
     let blink_on = (clock() - v.blink_at) % 1.1 < 0.65 || clock() - v.blink_at < 0.6;
     var line: u8[>..] = [];
     var num: u8[>..] = [];
+    var spans: Span[>..<] = [];
+    var state = STATE_NORMAL;
     // One more row than fits: when scrolled part of a line, it shows at the bottom.
     for row in v.rows + 1 {
         let n = v.top + row;
@@ -217,7 +258,12 @@ fn draw_text_area(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32) {
         format(num, n + 1);
         let nx = v.text_x - (num.len + 1) * f.cell_w;
         draw_str(c, f, nx, y, num, if n == current { GUTTER_FG_CURRENT } else { GUTTER_FG });
-        draw_line(c, f, v, line, y);
+        // The state the line starts in: known, or carried on from the row above.
+        let known, is_known = state_at(hl, n);
+        if is_known { state = known; }
+        spans.resize(0, default<Span>());
+        if hl.on { state = lex_line(hl.lang, line, state, spans); }
+        draw_line(c, f, v, line, y, spans);
         if blink_on {
             for s in ed.sels {
                 if s.head < ls || s.head > le { continue; }
@@ -256,7 +302,7 @@ fn draw_bars(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32, h: f32) {
     if v.bar == BAR_NONE { return; }
     // The field above it: search, or where to save.
     y -= f.line_h;
-    ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, CURRENT_LINE);
+    ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, FIELD_BG);
     s.clear();
     s.append(if v.bar == BAR_FIND { "検索: " } else { "保存先: " });
     s.append(v.query);
@@ -266,7 +312,7 @@ fn draw_bars(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32, h: f32) {
     if v.bar == BAR_FIND {
         let hint = "Enter: 次   Shift+Enter: 前   Esc: 閉じる";
         let hx = w - (advance(hint, 0) + 2) * f.cell_w;
-        if hx > (caret_col + 4) * f.cell_w { draw_str(c, f, hx, y, hint, GUTTER_FG); }
+        if hx > (caret_col + 4) * f.cell_w { draw_str(c, f, hx, y, hint, HINT_FG); }
     }
 }
 
@@ -289,7 +335,7 @@ fn draw_tree(c: ui::Context, f: Face, v: View&, tr: Tree&) {
     let root = tr.root[..];
     let k = rfind(root, "/");
     fit(if k < 0 || k == root.len - 1 { root } else { root[k + 1..] }, tr.width - 2, s);
-    draw_str(c, f, f.cell_w, v.tree_y, s, GUTTER_FG_CURRENT);
+    draw_str(c, f, f.cell_w, v.tree_y, s, HINT_FG);
     for row in v.tree_rows {
         let i = tr.top + row;
         if i >= tr.rows.len { break; }
@@ -304,16 +350,16 @@ fn draw_tree(c: ui::Context, f: Face, v: View&, tr: Tree&) {
             let cx = (indent + 0.5) * f.cell_w;
             let cy = y + f.line_h * 0.5;
             let r = f.cell_w * 0.35;
-            if e.open { ui::fill_triangle(c, cx - r, cy - r * 0.6, cx + r, cy - r * 0.6, cx, cy + r * 0.8, GUTTER_FG); }
-            else { ui::fill_triangle(c, cx - r * 0.6, cy - r, cx - r * 0.6, cy + r, cx + r * 0.8, cy, GUTTER_FG); }
+            if e.open { ui::fill_triangle(c, cx - r, cy - r * 0.6, cx + r, cy - r * 0.6, cx, cy + r * 0.8, HINT_FG); }
+            else { ui::fill_triangle(c, cx - r * 0.6, cy - r, cx - r * 0.6, cy + r, cx + r * 0.8, cy, HINT_FG); }
         }
         s.clear();
         fit(name_of(tr, e), tr.width - indent - 3, s);
-        draw_str(c, f, (indent + 2) * f.cell_w, y, s, if e.is_dir { BAR_FG } else { FG });
+        draw_str(c, f, (indent + 2) * f.cell_w, y, s, if e.is_dir { DIR_FG } else { FG });
     }
 }
 
-fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&, tr: Tree&) {
+fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&, tr: Tree&, hl: Highlight&) {
     layout(ed, v, tr, f);
     clamp_scroll(ed, v);
     if v.follow {
@@ -326,7 +372,7 @@ fn draw(c: ui::Context, f: Fonts, ed: Editor&, v: View&, tr: Tree&) {
     let h: f32 = size.y;
     if ui::begin(c, "kop", ui::rect(0.0, 0.0, w, h), ui::WINDOW_NO_SCROLLBAR | ui::WINDOW_NO_INPUT) {
         if tr.shown { draw_tree(c, f.ui, v, tr); }
-        draw_text_area(c, f.text, ed, v, w);
+        draw_text_area(c, f.text, ed, v, hl, w);
         draw_bars(c, f.ui, ed, v, w, h);
     }
     ui::end(c);

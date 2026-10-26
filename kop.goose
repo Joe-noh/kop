@@ -21,6 +21,7 @@ import core.doc;
 import core.motion;
 import core.settings;
 import core.utf8;
+import core.syntax;
 import view.state;
 import view.font;
 import view.render;
@@ -70,7 +71,8 @@ struct App {
     started: f64,
     frame_time: f64,       // the work of a frame, from input to handing the GPU its commands
     slowest: f64,
-    draw_time: f64,        // of which laying out the window's drawing
+    lex_time: f64,         // of which finding the states lines start in
+    draw_time: f64,        // laying out the window's drawing
     render_time: f64,      // and converting it to triangles and submitting them
     frame_gap: f64,        // from one frame's start to the next, waiting for the display included
     last_start: f64,
@@ -101,6 +103,8 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
     var groups: Group[>..<] = [];
     var snaps: Sel[>..<] = [];
     var h = History { ops: ops, dels: dels, groups: groups, snaps: snaps, applied: 0, last_kind: KIND_NONE, saved_at: 0 };
+    var hl_states: u8[>..<] = [];
+    var hl = highlight_new(path, hl_states);
     var sels: Sel[>..<] = [];
     sels.push(caret(0));
     var ed = Editor { t: t, h: h, sels: sels, crlf: info.crlf, tabs: info.tabs };
@@ -137,10 +141,17 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
                 say(v, "未保存の変更があります（もう一度クリックで破棄して開く）");
             }
         }
+        // Colors: forget what an edit changed, then lex on towards the screen's
+        // last line, a few milliseconds a frame, so a huge file never stalls.
+        let lex_start = clock();
+        let dirty = take_dirty(ed.t);
+        if dirty != NOT_DIRTY { highlight_edited(hl, ed.t, dirty); }
+        highlight_extend(hl, ed.t, v.top + v.rows + 1, 0.003);
+        app.lex_time += clock() - lex_start;
         let draw_start = clock();
-        draw(app.c, app.f, ed, v, tr);
+        draw(app.c, app.f, ed, v, tr, hl);
         app.draw_time += clock() - draw_start;
-        gfx::begin_screen(float4 { 0.118, 0.122, 0.133, 1.0 });
+        gfx::begin_screen(float4 { 0x10 / 255.0, 0x0F / 255.0, 0x0F / 255.0, 1.0 });     // Flexoki's base
         gfx::end_pass();
         let render_start = clock();
         ui::render(app.c);
@@ -225,7 +236,7 @@ fn main() {
     var app = App { c: c, f: f, win: win, density: density, k: keys(), mac: gfx::driver() == "metal",
                     scripted: script_path.len > 0, frames: frames, drawn: 0, profile: profile,
                     notice: [], started: clock(), frame_time: 0.0, slowest: 0.0,
-                    draw_time: 0.0, render_time: 0.0, frame_gap: 0.0, last_start: 0.0 };
+                    lex_time: 0.0, draw_time: 0.0, render_time: 0.0, frame_gap: 0.0, last_start: 0.0 };
     var cut = min(problems.len, 240);
     while cut < problems.len && cut > 0 && is_cont(problems[cut]) { cut--; }
     app.notice.append(problems[..cut]);
@@ -242,7 +253,7 @@ fn main() {
 
     if profile && app.drawn > 0 {
         let ms = 1000.0 / app.drawn;
-        write_stderr(str(app.drawn, " frames: ", app.frame_time * ms, " ms of work each on average (draw ",
+        write_stderr(str(app.drawn, " frames: ", app.frame_time * ms,  " ms of work each on average (lex ", app.lex_time * ms, ", draw ",
                          app.draw_time * ms, ", render ", app.render_time * ms, "), slowest ",
                          app.slowest * 1000.0, " ms; a frame every ", app.frame_gap * ms, " ms\n"));
     }
