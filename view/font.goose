@@ -44,11 +44,11 @@ struct Face {
 struct Fonts { text: Face, ui: Face }
 
 // For each face, 0x10000 entries: the part that draws each codepoint, or NO_PART.
-var glyph_part: u8[>..] = [];
+var glyph_part: u8[>..<] = [];
 // For each face, the same: how far the glyph is from the left of its cells
 // when centered in them, or ON_GRID for one whose advance is its cells'
 // width, which is drawn in runs with its neighbors.
-var glyph_inset: f32[>..] = [];
+var glyph_inset: f32[>..<] = [];
 let ON_GRID: f32 = -1.0;
 
 fn part_of(face: Face, cp: u32) -> i64 {

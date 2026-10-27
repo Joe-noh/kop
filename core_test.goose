@@ -337,7 +337,6 @@ fn spans_of(line: const u8[:], state: u8, out: u8[>..]&) -> u8 {
 }
 
 fn test_syntax() {
-    use_language(GOOSE);
     var out: u8[>..] = [];
     var st = spans_of("fn main() -> i64 { let x = 0x1F + 2.5e-3; }", STATE_NORMAL, out);
     check(out == "1:fn 7:main 2:i64 1:let 4:0x1F 4:2.5e-3 " && st == STATE_NORMAL, str("tokens: ", out));
@@ -352,9 +351,9 @@ fn test_syntax() {
     check(st == STATE_NORMAL && out == "6:d */ 1:let ", str("comment closed on the next line: ", out));
     out.clear();
     st = spans_of("    let s = \"\"\"", STATE_NORMAL, out);
-    check(st == STATE_RAW, "raw string left open");
+    check(st == CODE_RAW, "raw string left open");
     out.clear();
-    st = spans_of("  text \"\"\"; fn", STATE_RAW, out);
+    st = spans_of("  text \"\"\"; fn", CODE_RAW, out);
     check(st == STATE_NORMAL && out == "5:  text \"\"\" 1:fn ", str("raw string closed: ", out));
     out.clear();
     spans_of("let MAX_SIZE: Point = A;", STATE_NORMAL, out);
@@ -375,7 +374,7 @@ fn test_syntax() {
     check(highlight_extend(hl, t, 100, 1.0), "extended to the end");
     var got: u8[>..] = [];
     for s in hl.states { format(got, s, ","); }
-    check(got == "0,0,1,0,0,128,128,0,", str("line states: ", got));
+    check(got == "0,0,1,0,0,64,64,0,", str("line states: ", got));
     insert(t, 0, "/*\n");
     let d = take_dirty(t);
     check(d == 0, "edit is dirty from 0");
@@ -384,7 +383,74 @@ fn test_syntax() {
     check(highlight_extend(hl, t, 100, 1.0) && hl.states[1] == 1, "line after an opened comment");
 }
 
+// Like spans_of, for any language.
+fn spans_in(lang: Language, line: const u8[:], state: u8, out: u8[>..]&) -> u8 {
+    out.clear();
+    var spans: Span[>..<] = [];
+    let next = lex_line(lang, line, state, spans);
+    for sp in spans { format(out, sp.kind, ":", line[sp.start..sp.start + sp.len], " "); }
+    return next;
+}
+
+fn expect(lang: Language, line: const u8[:], state: u8, want: const u8[:], want_state: u8) -> u8 {
+    var out: u8[>..] = [];
+    let next = spans_in(lang, line, state, out);
+    check(out == want && next == want_state, str(lang.name, ": ", line, " -> ", out, "(state ", next, ")"));
+    return next;
+}
+
+fn test_languages() {
+    // Ruby
+    expect(RUBY, "def self.greet(name)", 0, "1:def 3:self 7:greet ", 0);
+    expect(RUBY, "  @count += 1 # inc", 0, "11:@count 4:1 6:# inc ", 0);
+    expect(RUBY, "puts :sym, key: \"v\", empty?", 0, "3::sym 3:key 5:\"v\" ", 0);
+    expect(RUBY, "class Foo < Bar::BAZ", 0, "1:class 2:Foo 2:Bar 3:BAZ ", 0);
+    var st = expect(RUBY, "sql = <<~SQL", 0, "5:<<~SQL ", heredoc_state("SQL"));
+    st = expect(RUBY, "  select 1", st, "5:  select 1 ", st);
+    expect(RUBY, "  SQL", st, "5:  SQL ", 0);
+    st = expect(RUBY, "=begin", 0, "6:=begin ", CODE_LINE_BLOCK);
+    st = expect(RUBY, "def x", st, "6:def x ", CODE_LINE_BLOCK);
+    expect(RUBY, "=end", st, "6:=end ", 0);
+    st = expect(RUBY, "s = \"one", 0, "5:\"one ", CODE_LONG);
+    expect(RUBY, "two\" if ok", st, "5:two\" 1:if ", 0);
+    // JavaScript and TypeScript
+    expect(JAVASCRIPT, "function add(a, b) { return a + b; } // sum", 0, "1:function 7:add 1:return 6:// sum ", 0);
+    st = expect(JAVASCRIPT, "const s = `a", 0, "1:const 5:`a ", CODE_LONG + 2);
+    expect(JAVASCRIPT, "b` + this.x(null)", st, "5:b` 3:this 7:x 3:null ", 0);
+    expect(JAVASCRIPT, "/* c */ let X_MAX = 0x1F;", 0, "6:/* c */ 1:let 3:X_MAX 4:0x1F ", 0);
+    expect(TYPESCRIPT, "interface User { name: string; age?: number }", 0, "1:interface 2:User 2:string 2:number ", 0);
+    // CSS, SCSS and Sass
+    expect(CSS, "a.btn:hover, #main > ul li { color: #fff; margin: 0 auto; }", 0,
+           "8:a 9:.btn 1::hover 9:#main 8:ul 8:li 10:color 3:#fff 10:margin 4:0 3:auto ", 0);
+    expect(CSS, "@media (max-width: 600px) {", 0, "1:@media 4:600px ", 1);
+    expect(CSS, "  width: calc(100% - 2px) !important; /* note", 1, "10:width 7:calc 4:100% 4:2px 1:!important 6:/* note ", 1 | STYLE_COMMENT);
+    expect(CSS, "end */ p { }", 1 | STYLE_COMMENT, "6:end */ 8:p ", 1);
+    expect(SCSS, "$main: #333; .a { &:hover { color: $main; } } // c", 0,
+           "11:$main 3:#333 9:.a 1::hover 10:color 11:$main 6:// c ", 0);
+    expect(SASS, "nav", 0, "8:nav ", 0);
+    expect(SASS, "  color: red", 0, "10:color 3:red ", 0);
+    expect(SASS, "  a:hover", 0, "8:a 1::hover ", 0);
+    expect(SASS, "  +button(2px)", 0, "1:+button 4:2px ", 0);
+    // HTML, with what it holds
+    expect(HTML, "<a href=\"/x\" class=btn>Hi &amp; bye</a>", 0, "8:a 9:href 5:\"/x\" 9:class 5:btn 3:&amp; 8:a ", 0);
+    expect(HTML, "<!DOCTYPE html>", 0, "1:<!DOCTYPE html> ", 0);
+    st = expect(HTML, "<!-- open", 0, "6:<!-- open ", MARKUP_COMMENT);
+    expect(HTML, "close --> <b>", st, "6:close --> 8:b ", 0);
+    st = expect(HTML, "<script>let x = 1;", 0, "8:script 1:let 4:1 ", MARKUP_SCRIPT);
+    st = expect(HTML, "</script><style>a { color: red }", st, "8:script 8:style 8:a 10:color 3:red ", MARKUP_STYLE);
+    expect(HTML, "</style>", st, "8:style ", 0);
+    st = expect(HTML, "<div", 0, "8:div ", MARKUP_TAG);
+    expect(HTML, "  id=\"top\">text", st, "9:id 5:\"top\" ", 0);
+    // Which language a file is.
+    let r, rf = language_for("app/Gemfile");
+    let t, tf = language_for("src/x.tsx");
+    let c, cf = language_for("a/b.scss");
+    let n, nf = language_for("notes.txt");
+    check(rf && r.id == RUBY.id && tf && t.id == TYPESCRIPT.id && cf && c.id == SCSS.id && !nf, "languages by file name");
+}
+
 fn main() {
+    test_languages();
     test_syntax();
     test_font_files();
     test_settings();

@@ -23,7 +23,8 @@ core/utf8.goose    UTF-8 と文字種
 core/width.goose   文字幅（セル数）
 core/doc.goose     BOM・改行コード・インデントの検出と保存
 core/settings.goose 設定ファイル（~/.kop/settings.json と、プロジェクトの .kop/settings.json）
-core/syntax.goose  シンタックスハイライト（言語定義、行ごとの字句解析、行頭の状態のキャッシュ）
+core/syntax.goose  シンタックスハイライト（言語ごとの字句解析器への振り分け、行頭の状態のキャッシュ）
+core/syntax/       字句解析器（code: Goose・Ruby・JS・TS、style: CSS・SCSS・Sass、markup: HTML）、言語の定義、共通部品
 view/              描画、入力、フォント、ファイルツリー、テーマ、SDL まわり、テスト用の入力再生
 ```
 

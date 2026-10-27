@@ -24,7 +24,7 @@ struct Theme {
     tree_fg: ui::Color,             // a file's name
     tree_dir_fg: ui::Color,         // a directory's
     tree_current_fg: ui::Color,     // the file being edited
-    tokens: ui::Color[8],           // by TOK_* value
+    tokens: ui::Color[12],          // by TOK_* value
 }
 
 fn rgb(r: u8, g: u8, b: u8) -> ui::Color { ui::Color { r, g, b, 255 } }
@@ -59,8 +59,9 @@ fn flexoki_dark() -> Theme {
         panel_bg: bg_2, panel_edge: ui_2, panel_current: ui_2,     // ui.text.focus
         tree_fg: tx, tree_dir_fg: blue, tree_current_fg: tx,       // ui.text.directory
         // text, keyword, type, constant, number, string, comment (italic in
-        // Helix; ui has no italic), function
-        tokens: [tx, green, yellow, orange, orange, cyan, tx_3, orange],
+        // Helix; ui has no italic), function, tag, attribute, property
+        // (variable.other.member) and variable (the same)
+        tokens: [tx, green, yellow, orange, orange, cyan, tx_3, orange, blue, blue, blue, blue],
     };
 }
 
@@ -78,6 +79,7 @@ fn spacegray() -> Theme {
     let base04 = rgb(167, 173, 186);
     let base05 = rgb(192, 197, 206);
     let base06 = rgb(223, 225, 232);
+    let base08 = rgb(191, 97, 106);
     let base09 = rgb(208, 135, 112);
     let base0a = rgb(235, 203, 139);
     let base0b = rgb(163, 190, 140);
@@ -97,8 +99,10 @@ fn spacegray() -> Theme {
         notice: base0a,                                 // accent
         panel_bg: base_01, panel_edge: base_00, panel_current: base01,   // sidebar_container, selected tree_row
         tree_fg: base04, tree_dir_fg: base04, tree_current_fg: base06,   // sidebar_label, selected
-        // text, keyword, type (classes), constant, number, string, comment, function
-        tokens: [base05, base0e, base0a, base09, base09, base0b, base03, base0d],
+        // text, keyword, type (classes), constant, number, string, comment,
+        // function, tag, attribute (-name), property (support.type.property-name),
+        // variable
+        tokens: [base05, base0e, base0a, base09, base09, base0b, base03, base0d, base08, base09, base0e, base06],
     };
 }
 

@@ -11,7 +11,7 @@ import core.utf8;
 let TAB_SIZE = 4;
 
 // Indexed by codepoint below 0x10000: 0 not known yet, else cells + 1.
-var cell_widths: u8[>..] = [];
+var cell_widths: u8[>..<] = [];
 
 fn eaw_width(cp: u32) -> i64 {
     if cp == 0 { return 0; }
