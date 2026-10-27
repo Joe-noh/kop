@@ -288,9 +288,7 @@ fn draw_tree(c: ui::Context, f: Face, v: View&, tr: Tree&) {
     ui::fill_rect(c, ui::rect(0.0, 0.0, pw, v.tree_bottom), 0.0, theme.panel_bg);
     ui::fill_rect(c, ui::rect(pw - 1.0, 0.0, 1.0, v.tree_bottom), 0.0, theme.panel_edge);
     var s: u8[>..] = [];
-    let root = tr.root[..];
-    let k = rfind(root, "/");
-    fit(if k < 0 || k == root.len - 1 { root } else { root[k + 1..] }, tr.width - 2, s);
+    fit(tr.title, tr.width - 2, s);
     draw_str(c, f, f.cell_w, v.tree_y, s, theme.hint_fg);
     for row in v.tree_rows {
         let i = tr.top + row;

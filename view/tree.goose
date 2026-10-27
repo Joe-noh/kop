@@ -16,7 +16,8 @@ struct Entry {
 }
 
 struct Tree {
-    root: u8[..1024],       // the directory opened; empty for none
+    root: u8[..1024],       // the directory opened, as it was given; empty for none
+    title: u8[..256] = [],  // its own name, which "." does not say
     pool: u8[>..<]&,        // every path listed so far, end to end
     rows: Entry[>..<]&,
     shown: bool = false,
@@ -57,11 +58,33 @@ fn tree_open(tr: Tree&, dir: const u8[:]) {
     var end = dir.len;
     while end > 1 && dir[end - 1] == '/' { end--; }
     tr.root.append(dir[..min(end, 1024)]);
+    directory_name(tr.root, tr.title);
     tr.pool.resize(0, 0);
     tr.rows.resize(0, default<Entry>());
     list_entries(tr, tr.root, 0, tr.rows);
     tr.shown = true;
     tr.top = 0;
+}
+
+// The name of the directory `path` names, which "." and "dir/.." do not
+// say: the last part of its absolute path, made from the working
+// directory the shell gives in PWD for a relative one.
+fn directory_name(path: const u8[:], out: u8[..256]&) {
+    var full: u8[>..] = [];
+    if path.len == 0 || path[0] != '/' {
+        var pwd: u8[>..] = [];
+        if env("PWD", pwd) { format(full, pwd, "/"); }
+    }
+    full.append(path);
+    // The parts that are left once "." and ".." have gone.
+    var parts: const u8[:][>..<] = [];
+    each_split(full, '/') {
+        if it == ".." { if parts.len > 0 { parts.pop(); } }
+        else if it.len > 0 && it != "." { parts.push(it); }
+    };
+    let name = if parts.len > 0 { parts[parts.len - 1] } else if full.len > 0 && full[0] == '/' { "/" } else { path };
+    out.resize(0, 0);
+    out.append(name[..min(name.len, 256)]);
 }
 
 // Opens or closes directory row `i`.

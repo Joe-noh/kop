@@ -11,6 +11,7 @@ import core.settings;
 import core.syntax;
 import core.keymap;
 import view.fontfile;
+import view.tree;
 import os;
 
 var failures = 0;
@@ -491,7 +492,27 @@ fn test_keymap() {
     check(k == "return", "aliases");
 }
 
+fn test_directory_name() {
+    var name: u8[..256] = [];
+    directory_name("/a/b/c", name);
+    check(name == "c", "an absolute path");
+    directory_name("/a/b/../c/./", name);
+    check(name == "c", ". and .. in an absolute path");
+    directory_name("/", name);
+    check(name == "/", "the root");
+    var pwd: u8[>..] = [];
+    if env("PWD", pwd) {
+        let k = rfind(pwd, "/");
+        directory_name(".", name);
+        check(name == pwd[k + 1..], str(". is the working directory: ", name));
+        directory_name("../", name);
+        let parent = pwd[..k];
+        check(name == parent[rfind(parent, "/") + 1..], str(".. is its parent: ", name));
+    }
+}
+
 fn main() {
+    test_directory_name();
     test_keymap();
     test_languages();
     test_syntax();
