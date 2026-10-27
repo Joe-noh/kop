@@ -33,3 +33,30 @@ fn set_ime_caret(w: u64, density: f32, x: f32, y: f32, h: f32) {
     let r = SdlRect { (x / density) as! i32, (y / density) as! i32, 1, max((h / density) as! i32, 1) };
     SDL_SetTextInputArea(w, r, 0);
 }
+
+// The mouse's cursor, which gfx leaves as the system's arrow: SDL's own
+// cursors, made once, and set when the one wanted changes.
+extern fn SDL_CreateSystemCursor(id: i32) -> u64;
+extern fn SDL_SetCursor(cursor: u64) -> bool;
+
+let CURSOR_ARROW: i32 = 0;          // SDL_SYSTEM_CURSOR_DEFAULT
+let CURSOR_TEXT: i32 = 1;           // SDL_SYSTEM_CURSOR_TEXT, an I-beam
+let CURSOR_POINTER: i32 = 11;       // SDL_SYSTEM_CURSOR_POINTER, a pointing hand
+
+struct Cursors { arrow: u64, text: u64, pointer: u64, shown: i32 }
+
+fn make_cursors() -> Cursors {
+    Cursors {
+        arrow: SDL_CreateSystemCursor(CURSOR_ARROW),
+        text: SDL_CreateSystemCursor(CURSOR_TEXT),
+        pointer: SDL_CreateSystemCursor(CURSOR_POINTER),
+        shown: CURSOR_ARROW,
+    }
+}
+
+fn show_cursor(c: Cursors&, which: i32) {
+    if which == c.shown { return; }
+    let handle = if which == CURSOR_TEXT { c.text } else if which == CURSOR_POINTER { c.pointer } else { c.arrow };
+    if handle != 0 { SDL_SetCursor(handle); }
+    c.shown = which;
+}

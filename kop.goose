@@ -64,6 +64,7 @@ struct App {
     win: u64,
     density: f32,
     mac: bool,
+    cursors: Cursors,
     scripted: bool,
     frames: i64,            // stop after this many frames; -1 for never
     drawn: i64,
@@ -151,6 +152,7 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
         app.lex_time += clock() - lex_start;
         let draw_start = clock();
         draw(app.c, app.f, ed, v, tr, hl);
+        show_cursor(app.cursors, cursor_at(v, tr));
         app.draw_time += clock() - draw_start;
         gfx::begin_screen(float4 { theme.bg.r / 255.0, theme.bg.g / 255.0, theme.bg.b / 255.0, 1.0 });
         gfx::end_pass();
@@ -242,7 +244,7 @@ fn main() {
     guard c.id != 0 else { abort(str("ui: ", ui::error())); }
     style_window(c);
     gfx::text_input(true);
-    var app = App { c: c, f: f, win: win, density: density, mac: mac,
+    var app = App { c: c, f: f, win: win, density: density, mac: mac, cursors: make_cursors(),
                     scripted: script_path.len > 0, frames: frames, drawn: 0, profile: profile,
                     notice: [], started: clock(), frame_time: 0.0, slowest: 0.0,
                     lex_time: 0.0, draw_time: 0.0, render_time: 0.0, frame_gap: 0.0, last_start: 0.0 };

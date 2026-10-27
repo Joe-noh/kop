@@ -16,6 +16,7 @@ import core.keymap;
 import view.state;
 import view.render;
 import view.tree;
+import view.platform;
 
 // The caret moved or the text changed: show it, and show the caret steadily.
 fn touched(v: View&) {
@@ -297,6 +298,18 @@ fn handle_input(ed: Editor&, v: View&, tr: Tree&, mac: bool) {
             v.drag = DRAG_NONE;
         }
     }
+}
+
+// The cursor for where the mouse is: an I-beam over the text, and while
+// dragging a selection; a pointing hand over the tree's entries.
+fn cursor_at(v: View&, tr: Tree&) -> i32 {
+    if v.drag != DRAG_NONE { return CURSOR_TEXT; }
+    let p = gfx::mouse_pos();
+    if p.x < v.panel_w {
+        return if tree_row_at(v, tr, p) >= 0 { CURSOR_POINTER } else { CURSOR_ARROW };
+    }
+    if p.x >= v.text_x && p.y < v.text_bottom { return CURSOR_TEXT; }
+    return CURSOR_ARROW;
 }
 
 // Typing goes to the field at the bottom when it is open, else to every caret.
