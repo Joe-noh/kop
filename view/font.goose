@@ -24,6 +24,8 @@ let WANTED_RANGES: u32[14] = [0x20, 0xFF, 0x370, 0x4FF, 0x2000, 0x27BF, 0x3000, 
 let MAX_PARTS = 16;
 let MAX_ATLAS_HEIGHT = 16384;
 let NO_PART: u8 = 255;
+// A row's height, as a multiple of the font's size.
+let LINE_HEIGHT: f32 = 1.33;
 // Nuklear finds a glyph by going through its font's ranges one by one, so
 // ranges a few characters apart are baked as one, the characters between
 // them included: a font that lacks a scattering of kanji would otherwise
@@ -167,7 +169,7 @@ fn load_face(names: const u8[:], px: f32, problems: u8[>..]&) -> Face, bool {
         for cp in 0x20..0x7F { glyph_part[face.table + cp] = 0; }
     }
     face.cell_w = ui::text_width(face.parts[0], "M");
-    face.line_h = round(px * 1.45);
+    face.line_h = round(px * LINE_HEIGHT);
     let ascent = ui::info(face.parts[0]).ascent;
     for k in face.count { face.lift[k] = round(ascent - ui::info(face.parts[k]).ascent); }
     return face, true;
