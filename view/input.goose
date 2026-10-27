@@ -25,7 +25,7 @@ fn touched(v: View&) {
 }
 
 fn writable(v: View&) -> bool {
-    if v.readonly { say(v, "UTF-8 ではないので読み取り専用で開いています"); }
+    if v.readonly { say(v, "Opened read-only: not UTF-8"); }
     !v.readonly
 }
 
@@ -35,12 +35,12 @@ fn save_doc(ed: Editor&, v: View&) {
         v.query.resize(0, 0);
         return;
     }
-    if v.readonly { say(v, "読み取り専用です"); return; }
+    if v.readonly { say(v, "Read-only"); return; }
     if save(ed.t, v.info, v.path) {
         mark_saved(ed.h);
-        say(v, "保存しました");
+        say(v, "Saved");
     } else {
-        say(v, str("保存できませんでした: ", v.path));
+        say(v, str("Could not save: ", v.path));
     }
 }
 
@@ -59,7 +59,7 @@ fn open_find(ed: Editor&, v: View&) {
 
 fn find_in_doc(ed: Editor&, v: View&, forward: bool) {
     if v.query.len == 0 { return; }
-    if find_next(ed, v.query, forward) { touched(v); } else { say(v, "見つかりません"); }
+    if find_next(ed, v.query, forward) { touched(v); } else { say(v, "Not found"); }
 }
 
 // Removes the last character of a field.

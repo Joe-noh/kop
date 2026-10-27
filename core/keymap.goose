@@ -226,8 +226,8 @@ fn bind_lines(lines: const u8[:], sep: u8, mac: bool, problems: u8[>..]&) {
             let spec = if at < 0 { it } else { it[..at] };
             let name = if at < 0 { it[it.len..] } else { it[at + 1..] };
             let cmd = command_named(name);
-            if !parse_key(spec, mac, mods, key) { format(problems, "キーの書き方が違います: ", spec, "; "); }
-            else if cmd < 0 { format(problems, "知らないコマンドです: ", name, "; "); }
+            if !parse_key(spec, mac, mods, key) { format(problems, "not a key: ", spec, "; "); }
+            else if cmd < 0 { format(problems, "no such command: ", name, "; "); }
             else { bind(mods, key, cmd); }
         }
     };

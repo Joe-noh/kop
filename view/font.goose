@@ -148,11 +148,11 @@ fn load_face(names: const u8[:], px: f32, problems: u8[>..]&) -> Face, bool {
             raw.clear();
             ttf.clear();
             if !resolve_font(it, path) {
-                format(problems, "フォントが見つかりません: ", it, "; ");
+                format(problems, "font not found: ", it, "; ");
             } else if !read_file(path, raw) || !single_font(raw, ttf) {
-                format(problems, "フォントを読めません: ", path, "; ");
+                format(problems, "cannot read the font: ", path, "; ");
             } else if !add_font(face, ttf, px, has) {
-                format(problems, "フォントが大きすぎます: ", path, "; ");
+                format(problems, "font too large: ", path, "; ");
             } else if face.primary == 0 {
                 face.primary = face.count;
             }

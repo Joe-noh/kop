@@ -238,16 +238,16 @@ fn draw_bars(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32, h: f32) {
     ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, theme.bar_bg);
     let p = primary(ed);
     let n = line_of(ed.t, p.head);
-    s.append(if v.path.len > 0 { v.path[..] } else { "(無題)" });
+    s.append(if v.path.len > 0 { v.path[..] } else { "(untitled)" });
     if modified(ed.h) { s.append(" ●"); }
-    if v.readonly { s.append("  [読み取り専用]"); }
-    format(s, "   行 ", n + 1, ", 桁 ", col_of(ed.t, p.head) + 1);
-    if ed.sels.len > 1 { format(s, "   (", ed.sels.len, " 個のカーソル)"); }
-    else if !is_empty(p) { format(s, "   (", hi(p) - lo(p), " バイト選択)"); }
-    s.append(if v.info.utf8 { "   UTF-8" } else { "   UTF-8 ではありません" });
+    if v.readonly { s.append("  [read-only]"); }
+    format(s, "   Ln ", n + 1, ", Col ", col_of(ed.t, p.head) + 1);
+    if ed.sels.len > 1 { format(s, "   (", ed.sels.len, " cursors)"); }
+    else if !is_empty(p) { format(s, "   (", hi(p) - lo(p), " bytes selected)"); }
+    s.append(if v.info.utf8 { "   UTF-8" } else { "   not UTF-8" });
     if v.info.bom { s.append(" BOM"); }
     s.append(if ed.crlf { "   CRLF" } else { "   LF" });
-    s.append(if ed.tabs { "   タブ" } else { "   スペース" });
+    s.append(if ed.tabs { "   Tabs" } else { "   Spaces" });
     draw_str(c, f, f.cell_w, y, s, theme.bar_fg);
     if v.message.len > 0 && clock() - v.message_at < 4.0 {
         let mw = advance(v.message, 0) + 2;
@@ -260,13 +260,13 @@ fn draw_bars(c: ui::Context, f: Face, ed: Editor&, v: View&, w: f32, h: f32) {
     y -= f.line_h;
     ui::fill_rect(c, ui::rect(0.0, y, w, f.line_h), 0.0, theme.field_bg);
     s.clear();
-    s.append(if v.bar == BAR_FIND { "検索: " } else { "保存先: " });
+    s.append(if v.bar == BAR_FIND { "Find: " } else { "Save as: " });
     s.append(v.query);
     draw_str(c, f, f.cell_w, y, s, theme.fg);
     let caret_col = advance(s, 0);
     ui::fill_rect(c, ui::rect((caret_col + 1) * f.cell_w, y, max(round(f.cell_w * 0.22), 2.0), f.line_h), 0.0, theme.caret);
     if v.bar == BAR_FIND {
-        let hint = "Enter: 次   Shift+Enter: 前   Esc: 閉じる";
+        let hint = "Enter: next   Shift+Enter: previous   Esc: close";
         let hx = w - (advance(hint, 0) + 2) * f.cell_w;
         if hx > (caret_col + 4) * f.cell_w { draw_str(c, f, hx, y, hint, theme.hint_fg); }
     }

@@ -53,7 +53,7 @@ fn keep_recovery(ed: Editor&, v: View&) {
 }
 
 fn title_of(v: View&, dirty: bool) -> u8[>..] {
-    str(if dirty { "● " } else { "" }, if v.path.len > 0 { basename(v.path) } else { "(無題)" }, " — kop")
+    str(if dirty { "● " } else { "" }, if v.path.len > 0 { basename(v.path) } else { "(untitled)" }, " — kop")
 }
 
 // What outlives one document: the window, its font and ui, and how the run
@@ -113,8 +113,8 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
     var v = View { path: [], info: info, query: [], message: [], open_path: [], discard_path: [] };
     v.path.append(path[..min(path.len, 1024)]);
     v.readonly = !info.utf8;
-    if !opened_ok { say(v, str("開けませんでした: ", path)); }
-    else if v.readonly { say(v, "UTF-8 ではないので読み取り専用で開いています"); }
+    if !opened_ok { say(v, str("Could not open: ", path)); }
+    else if v.readonly { say(v, "Opened read-only: not UTF-8"); }
     if app.notice.len > 0 {
         say(v, app.notice);
         app.notice.resize(0, 0);
@@ -140,7 +140,7 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
                 }
                 v.discard_path.resize(0, 0);
                 v.discard_path.append(v.open_path);
-                say(v, "未保存の変更があります（もう一度クリックで破棄して開く）");
+                say(v, "Unsaved changes: click again to discard them");
             }
         }
         // Colors: forget what an edit changed, then lex on towards the screen's
@@ -218,7 +218,7 @@ fn main() {
     if settings.theme.len > 0 {
         let chosen, known = theme_named(settings.theme);
         if known { theme = chosen; }
-        else { format(problems, "テーマがありません: ", settings.theme, "（", THEME_NAMES, "）; "); }
+        else { format(problems, "no such theme: ", settings.theme, " (", THEME_NAMES, "); "); }
     }
 
     guard gfx::open("kop", 1100, 760, gfx::WINDOW_RESIZABLE) else {

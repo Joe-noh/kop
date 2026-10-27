@@ -44,7 +44,7 @@ fn read_keybindings(r: json::Reader&, at: u8[..4096]&, problems: u8[>..]&) {
         }
     };
     if lines.len > 4096 {
-        problems.append("keybindings が多すぎます; ");
+        problems.append("too many keybindings; ");
         return;
     }
     at.resize(0, 0);
@@ -65,7 +65,7 @@ fn read_font_family(r: json::Reader&, key: const u8[:], at: u8[..1024]&, problem
         format(names, json::read_string(r, scratch), "\n");
     }
     if names.len > 1024 {
-        format(problems, key, " が長すぎます; ");
+        format(problems, key, " is too long; ");
         return;
     }
     at.resize(0, 0);
@@ -75,7 +75,7 @@ fn read_font_family(r: json::Reader&, key: const u8[:], at: u8[..1024]&, problem
 fn read_font_size(r: json::Reader&, key: const u8[:], at: f32&, problems: u8[>..]&) {
     let v = json::read_number(r);
     if v < MIN_FONT_SIZE || v > MAX_FONT_SIZE {
-        format(problems, key, " は ", MIN_FONT_SIZE as i64, "〜", MAX_FONT_SIZE as i64, " にしてください; ");
+        format(problems, key, " must be from ", MIN_FONT_SIZE as i64, " to ", MAX_FONT_SIZE as i64, "; ");
         at = clamp(v as f32, MIN_FONT_SIZE, MAX_FONT_SIZE);
     } else {
         at = v as f32;
@@ -94,13 +94,13 @@ fn apply_settings(s: Settings&, text: const u8[:], problems: u8[>..]&) -> bool {
             json::each_member(r) { key =>
                 if key == "fontSize" { read_font_size(r, "editor.fontSize", next.editor_font_size, problems); }
                 else if key == "fontFamily" { read_font_family(r, "editor.fontFamily", next.editor_fonts, problems); }
-                else { format(problems, "editor.", key, " は知らない設定です; "); json::skip(r); }
+                else { format(problems, "unknown setting: editor.", key, "; "); json::skip(r); }
             };
         } else if section == "ui" {
             json::each_member(r) { key =>
                 if key == "fontSize" { read_font_size(r, "ui.fontSize", next.ui_font_size, problems); }
                 else if key == "fontFamily" { read_font_family(r, "ui.fontFamily", next.ui_fonts, problems); }
-                else { format(problems, "ui.", key, " は知らない設定です; "); json::skip(r); }
+                else { format(problems, "unknown setting: ui.", key, "; "); json::skip(r); }
             };
         } else if section == "keybindings" {
             read_keybindings(r, next.keybindings, problems);
@@ -110,7 +110,7 @@ fn apply_settings(s: Settings&, text: const u8[:], problems: u8[>..]&) -> bool {
             next.theme.resize(0, 0);
             next.theme.append(name[..min(name.len, 64)]);
         } else {
-            format(problems, section, " は知らない設定です; ");
+            format(problems, "unknown setting: ", section, "; ");
             json::skip(r);
         }
     };
@@ -129,7 +129,7 @@ fn load_settings_file(s: Settings&, path: const u8[:], problems: u8[>..]&) {
     if !file_exists(path) { return; }
     var text: u8[>..] = [];
     if !read_file(path, text) {
-        format(problems, path, ": 読めません; ");
+        format(problems, path, ": cannot read; ");
         return;
     }
     var found: u8[>..] = [];
