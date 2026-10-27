@@ -22,6 +22,7 @@ import core.motion;
 import core.settings;
 import core.utf8;
 import core.syntax;
+import core.keymap;
 import view.state;
 import view.font;
 import view.render;
@@ -62,7 +63,6 @@ struct App {
     f: Fonts,
     win: u64,
     density: f32,
-    k: Keys,
     mac: bool,
     scripted: bool,
     frames: i64,            // stop after this many frames; -1 for never
@@ -127,7 +127,7 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
     while !done && gfx::frame() {
         let frame_start = clock();
         ui::input_from_gfx(app.c);
-        handle_input(ed, v, tr, app.k, app.mac);
+        handle_input(ed, v, tr, app.mac);
         if v.quit { break; }
         if v.open_request {
             v.open_request = false;
@@ -230,6 +230,9 @@ fn main() {
     guard text_ok else { abort(str("font: ", ui::error())); }
     let ui_face, ui_ok = load_face(ui_fonts, round(settings.ui_font_size * density), problems);
     guard ui_ok else { abort(str("font: ", ui::error())); }
+    // macOS draws through Metal; its keys are Cmd's.
+    let mac = gfx::driver() == "metal";
+    build_keymap(mac, settings.keybindings, problems);
     if problems.len > 0 { write_stderr(str("kop: ", problems, "\n")); }
     let f = Fonts { text: text_face, ui: ui_face };
     learn_widths(f.text);
@@ -239,7 +242,7 @@ fn main() {
     guard c.id != 0 else { abort(str("ui: ", ui::error())); }
     style_window(c);
     gfx::text_input(true);
-    var app = App { c: c, f: f, win: win, density: density, k: keys(), mac: gfx::driver() == "metal",
+    var app = App { c: c, f: f, win: win, density: density, mac: mac,
                     scripted: script_path.len > 0, frames: frames, drawn: 0, profile: profile,
                     notice: [], started: clock(), frame_time: 0.0, slowest: 0.0,
                     lex_time: 0.0, draw_time: 0.0, render_time: 0.0, frame_gap: 0.0, last_start: 0.0 };

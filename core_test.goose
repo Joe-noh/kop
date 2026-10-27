@@ -9,6 +9,7 @@ import core.utf8;
 import core.doc;
 import core.settings;
 import core.syntax;
+import core.keymap;
 import view.fontfile;
 import os;
 
@@ -449,7 +450,49 @@ fn test_languages() {
     check(rf && r.id == RUBY.id && tf && t.id == TYPESCRIPT.id && cf && c.id == SCSS.id && !nf, "languages by file name");
 }
 
+fn test_keymap() {
+    var problems: u8[>..] = [];
+    build_keymap(true, "", problems);
+    check(problems.len == 0, str("default bindings read: ", problems));
+    let a, a_sel = command_for(KEY_CTRL, "a");
+    let e, e_sel = command_for(KEY_CTRL | KEY_SHIFT, "e");
+    let s, s_sel = command_for(KEY_CMD, "s");
+    let z, z_sel = command_for(KEY_CMD | KEY_SHIFT, "z");
+    let l, l_sel = command_for(KEY_SHIFT | KEY_ALT, "left");
+    check(a == CMD_LINE_START && !a_sel, "ctrl+a on a Mac");
+    check(e == CMD_LINE_END && e_sel, "ctrl+shift+e selects to the line's end");
+    check(s == CMD_SAVE && z == CMD_REDO && !z_sel, "cmd bindings, shift ones of their own");
+    check(l == CMD_WORD_LEFT && l_sel, "option+shift+left selects a word");
+    let n, n_sel = command_for(KEY_CTRL, "n");
+    let p, p_sel = command_for(KEY_CTRL, "p");
+    let kk, kk_sel = command_for(KEY_CTRL, "k");
+    check(n == CMD_DOWN && p == CMD_UP && kk == CMD_DELETE_TO_LINE_END, "ctrl+n, ctrl+p and ctrl+k on a Mac");
+    build_keymap(false, "", problems);
+    let pa, pa_sel = command_for(KEY_CTRL, "a");
+    let pw, pw_sel = command_for(KEY_CTRL, "left");
+    check(pa == CMD_SELECT_ALL && pw == CMD_WORD_LEFT, "ctrl+a selects all elsewhere");
+    // The settings' changes, read from JSON as the files give them.
+    var st = Settings {};
+    check(apply_settings(st, """{ "keybindings": { "ctrl+a": "line_start", "Ctrl+K": "delete_to_line_end", "mod+b": null } }""", problems), "keybindings read");
+    check(apply_settings(st, """{ "keybindings": { "ctrl+k": "cut", "hyper+x": "save", "ctrl+j": "jump" } }""", problems), "more keybindings read");
+    problems.clear();
+    build_keymap(false, st.keybindings, problems);
+    let ca, ca_sel = command_for(KEY_CTRL, "a");
+    let ck, ck_sel = command_for(KEY_CTRL, "k");
+    let cb, cb_sel = command_for(KEY_CTRL, "b");
+    check(ca == CMD_LINE_START, "a setting replaces a default");
+    check(ck == CMD_CUT, "a later file wins");
+    check(cb == CMD_NONE, "null unbinds");
+    check(find(problems, "hyper+x") >= 0 && find(problems, "jump") >= 0, str("bad bindings named: ", problems));
+    var k: u8[..24] = [];
+    key_name_of("Page Up", k);
+    check(k == "pageup", "key names compared without case or spaces");
+    key_name_of("Enter", k);
+    check(k == "return", "aliases");
+}
+
 fn main() {
+    test_keymap();
     test_languages();
     test_syntax();
     test_font_files();

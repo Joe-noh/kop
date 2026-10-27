@@ -1,7 +1,5 @@
-// The frame's keys, typing and mouse, turned into commands.
-//
-// On macOS Cmd is the command key and Option moves by words; elsewhere
-// Ctrl does both.
+// The frame's keys, typing and mouse, turned into commands. Which key runs
+// which command is core/keymap.goose's.
 
 import std;
 import os;
@@ -14,27 +12,10 @@ import core.edit;
 import core.motion;
 import core.doc;
 import core.utf8;
+import core.keymap;
 import view.state;
 import view.render;
 import view.tree;
-
-struct Keys {
-    left: i64, right: i64, up: i64, down: i64,
-    home: i64, end: i64, page_up: i64, page_down: i64,
-    backspace: i64, delete: i64, enter: i64, keypad_enter: i64, tab: i64, escape: i64,
-}
-
-fn keys() -> Keys {
-    Keys {
-        left: gfx::scancode("Left"), right: gfx::scancode("Right"),
-        up: gfx::scancode("Up"), down: gfx::scancode("Down"),
-        home: gfx::scancode("Home"), end: gfx::scancode("End"),
-        page_up: gfx::scancode("PageUp"), page_down: gfx::scancode("PageDown"),
-        backspace: gfx::scancode("Backspace"), delete: gfx::scancode("Delete"),
-        enter: gfx::scancode("Return"), keypad_enter: gfx::scancode("Keypad Enter"),
-        tab: gfx::scancode("Tab"), escape: gfx::scancode("Escape"),
-    }
-}
 
 // The caret moved or the text changed: show it, and show the caret steadily.
 fn touched(v: View&) {
@@ -94,12 +75,13 @@ fn append_field(s: u8[..256]&, text: const u8[:]) {
     }
 }
 
-// Keys for the field at the bottom; false for keys it leaves to the document.
-fn bar_key(ed: Editor&, v: View&, k: Keys, e: gfx::Event, cmd: bool, shift: bool) -> bool {
-    let sc = e.scancode;
-    if sc == k.escape { v.bar = BAR_NONE; return true; }
-    if sc == k.backspace { pop_char(v.query); return true; }
-    if sc == k.enter || sc == k.keypad_enter {
+// A command for the field at the bottom; false for those it leaves to the
+// document. Enter finds the next match, or with Shift the previous one.
+fn bar_command(ed: Editor&, v: View&, cmd: i64, shift: bool) -> bool {
+    if cmd == CMD_CANCEL { v.bar = BAR_NONE; return true; }
+    if cmd == CMD_DELETE_LEFT { pop_char(v.query); return true; }
+    if cmd == CMD_PASTE { append_field(v.query, gfx::clipboard()); return true; }
+    if cmd == CMD_NEWLINE {
         if v.bar == BAR_FIND {
             find_in_doc(ed, v, !shift);
         } else if v.query.len > 0 {
@@ -110,90 +92,100 @@ fn bar_key(ed: Editor&, v: View&, k: Keys, e: gfx::Event, cmd: bool, shift: bool
         }
         return true;
     }
-    if cmd && e.keycode == 'v' { append_field(v.query, gfx::clipboard()); return true; }
     return false;
 }
 
-fn on_key(ed: Editor&, v: View&, tr: Tree&, k: Keys, e: gfx::Event, mac: bool) {
-    let shift = (e.mods & gfx::MOD_SHIFT) != 0;
-    let cmd = (e.mods & (if mac { gfx::MOD_GUI } else { gfx::MOD_CTRL })) != 0;
-    let word = (e.mods & (if mac { gfx::MOD_ALT } else { gfx::MOD_CTRL })) != 0;
-    let sc = e.scancode;
-    if v.bar != BAR_NONE && bar_key(ed, v, k, e, cmd, shift) { return; }
+// Runs `cmd`; a motion with `select` moves the carets' heads only, so the
+// selections grow.
+fn run_command(ed: Editor&, v: View&, tr: Tree&, cmd: i64, select: bool) {
     let t = ed.t;
-    if cmd && !(sc == k.left || sc == k.right || sc == k.up || sc == k.down || sc == k.backspace || sc == k.delete) {
-        let key = e.keycode;
-        if key == 's' { save_doc(ed, v); }
-        else if key == 'z' && shift || key == 'y' {
-            if writable(v) && redo(ed.t, ed.h, ed.sels) { touched(v); }
-        } else if key == 'z' {
-            if writable(v) && undo(ed.t, ed.h, ed.sels) { touched(v); }
-        } else if key == 'c' || key == 'x' {
-            var out: u8[>..] = [];
-            copy_text(ed, out);
-            gfx::set_clipboard(out);
-            if key == 'x' && writable(v) { cut_selection(ed); touched(v); }
-        } else if key == 'v' {
-            if writable(v) { paste(ed, gfx::clipboard()); touched(v); }
-        } else if key == 'a' { select_all(ed); }
-        else if key == 'f' { open_find(ed, v); }
-        else if key == 'g' { find_in_doc(ed, v, !shift); }
-        else if key == 'q' { v.quit = true; }
-        else if key == 'b' { if tr.root.len > 0 { tr.shown = !tr.shown; } }
-        return;
-    }
-    if sc == k.left {
-        move_each(ed, shift) { s =>
-            s.head = if !shift && !is_empty(s) { lo(s) }
-                     else if word { word_left(t, s.head) }
-                     else if cmd { smart_home(t, s.head) }
-                     else { char_left(t, s.head) };
-            s.goal = -1;
-        };
-    } else if sc == k.right {
-        move_each(ed, shift) { s =>
-            s.head = if !shift && !is_empty(s) { hi(s) }
-                     else if word { word_right(t, s.head) }
-                     else if cmd { line_end_at(t, s.head) }
-                     else { char_right(t, s.head) };
-            s.goal = -1;
-        };
-    } else if sc == k.up || sc == k.down || sc == k.page_up || sc == k.page_down {
-        let dir = if sc == k.up || sc == k.page_up { -1 } else { 1 };
-        let step = if sc == k.page_up || sc == k.page_down { max(v.rows - 1, 1) } else { 1 };
-        if cmd {
-            move_each(ed, shift) { s => s.head = if dir < 0 { 0 } else { t.len }; s.goal = -1; };
-        } else {
-            move_each(ed, shift) { s =>
+    if is_motion(cmd) {
+        if cmd == CMD_UP || cmd == CMD_DOWN || cmd == CMD_PAGE_UP || cmd == CMD_PAGE_DOWN {
+            let dir = if cmd == CMD_UP || cmd == CMD_PAGE_UP { -1 } else { 1 };
+            let step = if cmd == CMD_PAGE_UP || cmd == CMD_PAGE_DOWN { max(v.rows - 1, 1) } else { 1 };
+            move_each(ed, select) { s =>
                 let p, g = vertical(t, s.head, s.goal, dir * step);
                 s.head = p;
                 s.goal = g;
             };
             if step > 1 { v.top += dir * step; }
+        } else {
+            move_each(ed, select) { s =>
+                // Left and right without Shift first collapse a selection to its side.
+                s.head = if cmd == CMD_LEFT && !select && !is_empty(s) { lo(s) }
+                         else if cmd == CMD_RIGHT && !select && !is_empty(s) { hi(s) }
+                         else if cmd == CMD_LEFT { char_left(t, s.head) }
+                         else if cmd == CMD_RIGHT { char_right(t, s.head) }
+                         else if cmd == CMD_WORD_LEFT { word_left(t, s.head) }
+                         else if cmd == CMD_WORD_RIGHT { word_right(t, s.head) }
+                         else if cmd == CMD_LINE_START { smart_home(t, s.head) }
+                         else if cmd == CMD_LINE_END { line_end_at(t, s.head) }
+                         else if cmd == CMD_DOC_START { 0 }
+                         else { t.len };
+                s.goal = -1;
+            };
         }
-    } else if sc == k.home {
-        move_each(ed, shift) { s => s.head = if cmd { 0 } else { smart_home(t, s.head) }; s.goal = -1; };
-    } else if sc == k.end {
-        move_each(ed, shift) { s => s.head = if cmd { t.len } else { line_end_at(t, s.head) }; s.goal = -1; };
-    } else if sc == k.backspace {
-        if !writable(v) { return; }
-        if cmd { delete_each(ed) { line_start(t, line_of(t, it)) }; }
-        else if word { delete_each(ed) { word_left(t, it) }; }
-        else { delete_each(ed) { char_left(t, it) }; }
-    } else if sc == k.delete {
-        if !writable(v) { return; }
-        if word { delete_each(ed) { word_right(t, it) }; } else { delete_each(ed) { char_right(t, it) }; }
-    } else if sc == k.enter || sc == k.keypad_enter {
-        if writable(v) { newline(ed); }
-    } else if sc == k.tab {
-        if writable(v) { tab(ed); }
-    } else if sc == k.escape {
-        if ed.sels.len > 1 { set_single(ed, primary(ed)); }
-        else { set_single(ed, caret(primary(ed).head)); }
-    } else {
+        touched(v);
         return;
     }
+    if cmd == CMD_SAVE { save_doc(ed, v); return; }
+    if cmd == CMD_QUIT { v.quit = true; return; }
+    if cmd == CMD_FIND { open_find(ed, v); return; }
+    if cmd == CMD_FIND_NEXT || cmd == CMD_FIND_PREVIOUS { find_in_doc(ed, v, cmd == CMD_FIND_NEXT); return; }
+    if cmd == CMD_TOGGLE_TREE { if tr.root.len > 0 { tr.shown = !tr.shown; } return; }
+    if cmd == CMD_SELECT_ALL { select_all(ed); touched(v); return; }
+    if cmd == CMD_COPY || cmd == CMD_CUT {
+        var out: u8[>..] = [];
+        copy_text(ed, out);
+        gfx::set_clipboard(out);
+        if cmd == CMD_CUT && writable(v) { cut_selection(ed); touched(v); }
+        return;
+    }
+    if cmd == CMD_CANCEL {
+        if ed.sels.len > 1 { set_single(ed, primary(ed)); } else { set_single(ed, caret(primary(ed).head)); }
+        touched(v);
+        return;
+    }
+    // The rest change the text.
+    if !writable(v) { return; }
+    if cmd == CMD_UNDO { if undo(ed.t, ed.h, ed.sels) { touched(v); } return; }
+    if cmd == CMD_REDO { if redo(ed.t, ed.h, ed.sels) { touched(v); } return; }
+    if cmd == CMD_PASTE { paste(ed, gfx::clipboard()); }
+    else if cmd == CMD_NEWLINE { newline(ed); }
+    else if cmd == CMD_INDENT { tab(ed); }
+    else if cmd == CMD_DELETE_LEFT { delete_each(ed) { char_left(t, it) }; }
+    else if cmd == CMD_DELETE_RIGHT { delete_each(ed) { char_right(t, it) }; }
+    else if cmd == CMD_DELETE_WORD_LEFT { delete_each(ed) { word_left(t, it) }; }
+    else if cmd == CMD_DELETE_WORD_RIGHT { delete_each(ed) { word_right(t, it) }; }
+    else if cmd == CMD_DELETE_TO_LINE_START { delete_each(ed) { line_start(t, line_of(t, it)) }; }
+    else if cmd == CMD_DELETE_TO_LINE_END {
+        // At a line's end, the line break, as Emacs's Ctrl+K does.
+        delete_each(ed) { if line_end_at(t, it) == it { char_right(t, it) } else { line_end_at(t, it) } };
+    }
     touched(v);
+}
+
+// The key's name as the keymap has it: the character it types, else its own.
+fn event_key(e: gfx::Event, out: u8[..24]&) {
+    out.resize(0, 0);
+    if e.keycode > 32 && e.keycode < 127 {
+        let c = e.keycode as! u8;
+        out.push(if c >= 'A' && c <= 'Z' { c + 32 } else { c });
+        return;
+    }
+    if e.keycode == 32 { out.push(' '); return; }
+    key_name_of(gfx::key_name(e.scancode), out);
+}
+
+// Runs the key's command, if it has one; true if it did.
+fn on_key(ed: Editor&, v: View&, tr: Tree&, e: gfx::Event) -> bool {
+    var key: u8[..24] = [];
+    event_key(e, key);
+    let cmd, select = command_for(e.mods, key);
+    if cmd == CMD_NONE { return false; }
+    if v.bar != BAR_NONE && bar_command(ed, v, cmd, (e.mods & gfx::MOD_SHIFT) != 0) { return true; }
+    run_command(ed, v, tr, cmd, select);
+    return true;
 }
 
 fn line_range(t: Text&, pos: i64) -> i64, i64 {
@@ -264,19 +256,22 @@ fn on_button(ed: Editor&, v: View&, tr: Tree&, e: gfx::Event) {
     v.blink_at = clock();
 }
 
-fn handle_input(ed: Editor&, v: View&, tr: Tree&, k: Keys, mac: bool) {
+fn handle_input(ed: Editor&, v: View&, tr: Tree&, mac: bool) {
     var typed: u8[>..] = [];
     let cmd_key = if mac { gfx::MOD_GUI } else { gfx::MOD_CTRL };
     var mods: i32 = 0;
+    var swallow = false;            // the last key ran a command: what it types is not text
     for e in gfx::events() {
         if e.kind == gfx::EVENT_TEXT {
-            if (mods & cmd_key) == 0 { push_utf8(typed, e.codepoint); }
+            if !swallow && (mods & cmd_key) == 0 && e.codepoint >= 0x20 && e.codepoint != 0x7F {
+                push_utf8(typed, e.codepoint);
+            }
             continue;
         }
         flush_typed(ed, v, typed);
         if e.kind == gfx::EVENT_KEY {
             mods = e.mods;
-            if e.down { on_key(ed, v, tr, k, e, mac); }
+            if e.down { swallow = on_key(ed, v, tr, e); }
         } else if e.kind == gfx::EVENT_MOUSE_BUTTON {
             on_button(ed, v, tr, e);
         } else if e.kind == gfx::EVENT_MOUSE_WHEEL && gfx::mouse_pos().x < v.panel_w {

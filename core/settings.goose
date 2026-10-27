@@ -5,7 +5,8 @@
 //   {
 //     "theme": "spacegray",
 //     "editor": { "fontSize": 14, "fontFamily": ["Menlo", "ヒラギノ角ゴシック W3"] },
-//     "ui": { "fontSize": 13 }
+//     "ui": { "fontSize": 13 },
+//     "keybindings": { "ctrl+k": "delete_to_line_end", "mod+b": "none" }
 //   }
 //
 // A font is a file name among the system's fonts, with or without its
@@ -26,6 +27,28 @@ struct Settings {
     editor_fonts: u8[..1024] = [],  // font names, one per line; empty for the defaults
     ui_fonts: u8[..1024] = [],
     theme: u8[..64] = [],           // a theme's name; empty for the default
+    keybindings: u8[..4096] = [],   // "key\tcommand" lines, the later files' last
+}
+
+// "keybindings": { "key": "command", ... }, a null command unbinding the key.
+fn read_keybindings(r: json::Reader&, at: u8[..4096]&, problems: u8[>..]&) {
+    var lines: u8[>..] = [];
+    lines.append(at);
+    json::each_member(r) { key =>
+        var scratch: u8[>..] = [];
+        if json::peek(r) == 'n' {
+            json::skip(r);
+            format(lines, key, "\tnone\n");
+        } else {
+            format(lines, key, "\t", json::read_string(r, scratch), "\n");
+        }
+    };
+    if lines.len > 4096 {
+        problems.append("keybindings が多すぎます; ");
+        return;
+    }
+    at.resize(0, 0);
+    at.append(lines);
 }
 
 // "fontFamily": one name, or a list of them.
@@ -79,6 +102,8 @@ fn apply_settings(s: Settings&, text: const u8[:], problems: u8[>..]&) -> bool {
                 else if key == "fontFamily" { read_font_family(r, "ui.fontFamily", next.ui_fonts, problems); }
                 else { format(problems, "ui.", key, " は知らない設定です; "); json::skip(r); }
             };
+        } else if section == "keybindings" {
+            read_keybindings(r, next.keybindings, problems);
         } else if section == "theme" {
             var scratch: u8[>..] = [];
             let name = json::read_string(r, scratch);
