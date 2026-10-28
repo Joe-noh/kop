@@ -468,6 +468,8 @@ fn test_keymap() {
     let p, p_sel = command_for(KEY_CTRL, "p");
     let kk, kk_sel = command_for(KEY_CTRL, "k");
     check(n == CMD_DOWN && p == CMD_UP && kk == CMD_DELETE_TO_LINE_END, "ctrl+n, ctrl+p and ctrl+k on a Mac");
+    let rl, rl_sel = command_for(KEY_CMD, "r");
+    check(rl == CMD_RELOAD, "cmd+r reloads");
     build_keymap(false, "", problems);
     let pa, pa_sel = command_for(KEY_CTRL, "a");
     let pw, pw_sel = command_for(KEY_CTRL, "left");

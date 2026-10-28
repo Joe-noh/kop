@@ -60,3 +60,24 @@ fn show_cursor(c: Cursors&, which: i32) {
     if handle != 0 { SDL_SetCursor(handle); }
     c.shown = which;
 }
+
+// A file as it is on disk, to tell when something else has changed it:
+// SDL's path info, which Goose's os module has no counterpart for.
+struct SdlPathInfo { kind: i32, pad 4, size: u64, created: i64, modified: i64, accessed: i64 }
+extern fn SDL_GetPathInfo(path: const u8&, info: SdlPathInfo&) -> bool;
+
+struct DiskStamp { exists: bool = false, size: u64 = 0, modified: i64 = 0 }
+
+fn disk_stamp(path: const u8[:]) -> DiskStamp {
+    if path.len == 0 { return DiskStamp {}; }
+    var c: u8[>..] = [];
+    c.append(path);
+    c.push(0);
+    var info = SdlPathInfo { kind: 0, size: 0, created: 0, modified: 0, accessed: 0 };
+    if !SDL_GetPathInfo(c[0], info) || info.kind != 1 { return DiskStamp {}; }      // 1: SDL_PATHTYPE_FILE
+    return DiskStamp { exists: true, size: info.size, modified: info.modified };
+}
+
+fn same_stamp(a: DiskStamp, b: DiskStamp) -> bool {
+    a.exists == b.exists && a.size == b.size && a.modified == b.modified
+}

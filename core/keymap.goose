@@ -52,6 +52,7 @@ let COMMAND_NAMES = """
     quit
     toggle_tree
     cancel
+    reload
     """;
 
 let CMD_NONE = 0;
@@ -88,6 +89,7 @@ let CMD_SAVE = 30;
 let CMD_QUIT = 31;
 let CMD_TOGGLE_TREE = 32;
 let CMD_CANCEL = 33;
+let CMD_RELOAD = 34;
 
 // Commands that move the carets, which select when Shift is held.
 fn is_motion(cmd: i64) -> bool { cmd >= CMD_LEFT && cmd <= CMD_PAGE_DOWN }
@@ -131,6 +133,7 @@ let COMMON_KEYS = """
     mod+s save
     mod+q quit
     mod+b toggle_tree
+    mod+r reload
     mod+home doc_start
     mod+end doc_end
     """;

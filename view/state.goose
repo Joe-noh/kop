@@ -4,6 +4,7 @@
 import std;
 import os;
 import core.doc;
+import view.platform;
 
 let BAR_NONE = 0;
 let BAR_FIND = 1;           // the search field at the bottom
@@ -51,6 +52,13 @@ struct View {
     open_request: bool = false,
     open_path: u8[..1024],
     discard_path: u8[..1024],
+    // The file on disk: as it was when read or saved, when it was last
+    // looked at, and the change already told of. Reloading reads it again.
+    disk: DiskStamp = DiskStamp {},
+    disk_checked: f64 = 0.0,
+    disk_told: DiskStamp = DiskStamp {},
+    reload_request: bool = false,
+    overwrite_ok: bool = false,     // told that saving overwrites a change on disk; the next save does
 }
 
 fn say(v: View&, text: const u8[:]) {

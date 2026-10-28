@@ -36,8 +36,19 @@ fn save_doc(ed: Editor&, v: View&) {
         return;
     }
     if v.readonly { say(v, "Read-only"); return; }
+    // Something else changed the file since it was read: say so once, and
+    // overwrite it at the next save.
+    let now = disk_stamp(v.path);
+    if now.exists && !same_stamp(now, v.disk) && !v.overwrite_ok {
+        v.overwrite_ok = true;
+        say(v, if v.disk.exists { "Changed on disk since opened: save again to overwrite it" } else { "The file exists: save again to overwrite it" });
+        return;
+    }
     if save(ed.t, v.info, v.path) {
         mark_saved(ed.h);
+        v.overwrite_ok = false;
+        v.disk = disk_stamp(v.path);
+        v.disk_told = v.disk;
         say(v, "Saved");
     } else {
         say(v, str("Could not save: ", v.path));
@@ -134,6 +145,7 @@ fn run_command(ed: Editor&, v: View&, tr: Tree&, cmd: i64, select: bool) {
     if cmd == CMD_FIND { open_find(ed, v); return; }
     if cmd == CMD_FIND_NEXT || cmd == CMD_FIND_PREVIOUS { find_in_doc(ed, v, cmd == CMD_FIND_NEXT); return; }
     if cmd == CMD_TOGGLE_TREE { if tr.root.len > 0 { tr.shown = !tr.shown; } return; }
+    if cmd == CMD_RELOAD { if v.path.len > 0 { v.reload_request = true; } return; }
     if cmd == CMD_SELECT_ALL { select_all(ed); touched(v); return; }
     if cmd == CMD_COPY || cmd == CMD_CUT {
         var out: u8[>..] = [];

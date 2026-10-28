@@ -70,6 +70,13 @@ struct App {
     drawn: i64,
     profile: bool,
     notice: u8[..240],      // for the status bar of the first document: what was wrong with the settings
+    // Where to put the caret and the view after a reload, which reads the
+    // file again as the next document; `reloaded_auto` when no one asked.
+    reloaded: bool,
+    reloaded_auto: bool,
+    reload_line: i64,
+    reload_col: i64,
+    reload_top: i64,
     started: f64,
     frame_time: f64,       // the work of a frame, from input to handing the GPU its commands
     slowest: f64,
@@ -119,6 +126,16 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
         say(v, app.notice);
         app.notice.resize(0, 0);
     }
+    v.disk = disk_stamp(path);
+    v.disk_told = v.disk;
+    v.disk_checked = clock();
+    if app.reloaded {
+        app.reloaded = false;
+        set_single(ed, caret(pos_at_col(ed.t, min(app.reload_line, ed.t.lf), app.reload_col)));
+        v.top = app.reload_top;
+        v.follow = false;
+        say(v, if app.reloaded_auto { "Reloaded: changed on disk" } else { "Reloaded" });
+    }
 
     gfx::set_title(title_of(v, false));
     var was_dirty = false;
@@ -142,6 +159,30 @@ fn edit_file(app: App&, tr: Tree&, script: Script&, path: const u8[:], next: u8[
                 v.discard_path.append(v.open_path);
                 say(v, "Unsaved changes: click again to discard them");
             }
+        }
+        // The file on disk, looked at once a second. A change to it is read
+        // in when this document has none of its own, and told of otherwise.
+        var auto = false;
+        if v.path.len > 0 && frame_start - v.disk_checked > 1.0 {
+            v.disk_checked = frame_start;
+            let d = disk_stamp(v.path);
+            if !same_stamp(d, v.disk) && !same_stamp(d, v.disk_told) {
+                v.disk_told = d;
+                if d.exists && !modified(ed.h) { v.reload_request = true; auto = true; }
+                else if d.exists { say(v, "Changed on disk: reload to take it, or save to overwrite it"); }
+                else { say(v, "Deleted on disk"); }
+            }
+        }
+        if v.reload_request {
+            let head = primary(ed).head;
+            app.reloaded = true;
+            app.reloaded_auto = auto;
+            app.reload_line = line_of(ed.t, head);
+            app.reload_col = col_of(ed.t, head);
+            app.reload_top = v.top;
+            next.resize(0, 0);
+            next.append(v.path);
+            return false;
         }
         // Colors: forget what an edit changed, then lex on towards the screen's
         // last line, a few milliseconds a frame, so a huge file never stalls.
@@ -246,7 +287,7 @@ fn main() {
     gfx::text_input(true);
     var app = App { c: c, f: f, win: win, density: density, mac: mac, cursors: make_cursors(),
                     scripted: script_path.len > 0, frames: frames, drawn: 0, profile: profile,
-                    notice: [], started: clock(), frame_time: 0.0, slowest: 0.0,
+                    notice: [], reloaded: false, reloaded_auto: false, reload_line: 0, reload_col: 0, reload_top: 0, started: clock(), frame_time: 0.0, slowest: 0.0,
                     lex_time: 0.0, draw_time: 0.0, render_time: 0.0, frame_gap: 0.0, last_start: 0.0 };
     var cut = min(problems.len, 240);
     while cut < problems.len && cut > 0 && is_cont(problems[cut]) { cut--; }
