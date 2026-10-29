@@ -64,7 +64,7 @@ pub const Panel = struct {
 
     // How many rows of changes fit below the heading.
     fn fits(v: *const View) usize {
-        return @max(@as(usize, @intFromFloat(@max(@floor((v.tree_bottom - v.tree_y) / v.ui_line_h), 1))) -| 1, 1);
+        return render.listRows(v);
     }
 
     pub fn scroll(p: *Panel, v: *View, count: usize) void {
@@ -78,10 +78,7 @@ pub const Panel = struct {
 
     // The change at height `y`.
     pub fn changeAt(p: *const Panel, v: *const View, y: f32) ?*const git.Change {
-        if (y < v.tree_y) return null;
-        const row: usize = @intFromFloat((y - v.tree_y) / v.ui_line_h);
-        if (row == 0) return null;
-        const i = p.top + row - 1;
+        const i = p.top + (render.listRowAt(v, y) orelse return null);
         return if (i < p.rows.items.len) &p.rows.items[i] else null;
     }
 
@@ -101,7 +98,7 @@ pub const Panel = struct {
             const i = p.top + row;
             if (i >= list.len) break;
             const e = list[i];
-            const y = v.tree_y + float(row + 1) * f.line_h;
+            const y = render.listTop(v) + float(row) * f.line_h;
             if (v.path.eql(e.path)) fill(ren, x0 + 1, y, w - 1, f.line_h, th().panel_current);
             // What happened to it, as a colored mark.
             const mark = switch (e.kind) {

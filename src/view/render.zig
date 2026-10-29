@@ -76,7 +76,7 @@ pub fn layout(ed: *const Editor, v: *View, tr: *Tree, f: *const Fonts, w: f32, h
     v.cols = @max(@as(usize, @intFromFloat(@max(@floor((v.right_x - v.text_x - tf.cell_w) / tf.cell_w), 0))), 1);
     v.tree_y = @round(uf.line_h * 0.3);
     v.tree_bottom = h - bars_h;
-    v.tree_rows = @max(@as(usize, @intFromFloat(@max(@floor((v.tree_bottom - v.tree_y) / uf.line_h), 1))) - 1, 1);
+    v.tree_rows = listRows(v);
     tr.top = @min(tr.top, tr.rows.items.len -| v.tree_rows);
 }
 
@@ -303,14 +303,29 @@ fn drawBars(ren: *c.SDL_Renderer, f: *Face, ed: *const Editor, v: *const View, w
     }
 }
 
+// The lists at the sides, the tree and the changes: a heading, then a
+// little room, then the rows.
+pub fn listTop(v: *const View) f32 {
+    return v.tree_y + v.ui_line_h + @round(v.ui_line_h * 0.35);
+}
+
+pub fn listRows(v: *const View) usize {
+    return @max(@as(usize, @intFromFloat(@max(@floor((v.tree_bottom - listTop(v)) / v.ui_line_h), 1))), 1);
+}
+
+// The row of a list at height `y`, from its first; null above it.
+pub fn listRowAt(v: *const View, y: f32) ?usize {
+    if (y < listTop(v)) return null;
+    return @intFromFloat((y - listTop(v)) / v.ui_line_h);
+}
+
 pub const TreeHit = union(enum) { none, header, row: usize };
 
 // The tree's row at a point.
 pub fn treeRowAt(v: *const View, tr: *const Tree, x: f32, y: f32) TreeHit {
     if (x >= v.panel_w or y < v.tree_y or y >= v.tree_bottom) return .none;
-    const row: usize = @intFromFloat((y - v.tree_y) / v.ui_line_h);
-    if (row == 0) return .header;
-    const i = tr.top + row - 1;
+    const row = listRowAt(v, y) orelse return if (y < v.tree_y + v.ui_line_h) .header else .none;
+    const i = tr.top + row;
     return if (i < tr.rows.items.len) .{ .row = i } else .none;
 }
 
@@ -329,7 +344,7 @@ pub fn drawTree(ren: *c.SDL_Renderer, f: *Face, v: *const View, tr: *const Tree,
         const i = tr.top + row;
         if (i >= tr.rows.items.len) break;
         const e = tr.rows.items[i];
-        const y = v.tree_y + float(row + 1) * f.line_h;
+        const y = listTop(v) + float(row) * f.line_h;
         const current = !e.is_dir and v.path.eql(e.path);
         if (current) fill(ren, 0, y, pw - 1, f.line_h, th().panel_current);
         const indent = 1 + e.depth * 2;

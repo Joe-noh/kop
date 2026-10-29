@@ -115,6 +115,7 @@ pub const View = struct {
     disk_told: DiskStamp = .{},
     reload_request: bool = false,
     search_request: bool = false, // to search the whole project
+    diff_request: bool = false, // to show what has changed since HEAD
     changes_click: ?f32 = null, // a click on the changes, at this height
     changes_wheel: f32 = 0, // the wheel turned over them, in rows
     saves: usize = 0, // how many times the document was saved

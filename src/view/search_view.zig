@@ -353,7 +353,7 @@ pub const Screen = struct {
         v.cols = @max(@as(usize, @intFromFloat(@max(@floor((w - v.text_x - tf.cell_w) / tf.cell_w), 1))), 1);
         v.tree_y = s.field_h + @round(uf.line_h * 0.3);
         v.tree_bottom = h - uf.line_h;
-        v.tree_rows = @max(@as(usize, @intFromFloat(@max(@floor((v.tree_bottom - v.tree_y) / uf.line_h), 1))) - 1, 1);
+        v.tree_rows = render.listRows(v);
         tr.top = @min(tr.top, tr.rows.items.len -| v.tree_rows);
         // The scroll, in rows and pixels, then the caret kept in view.
         const lines = @floor(v.scroll_y / v.line_h);

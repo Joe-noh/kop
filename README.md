@@ -1,5 +1,7 @@
 # kop
 
+![kop](screenshot.png)
+
 ## ビルド
 
 Zig 0.15.2（`mise install` で入る）と、SDL3・FreeType（`brew install sdl3 freetype`）が要る。
@@ -34,7 +36,7 @@ src/core/syntax/        字句解析器（code: Zig・Goose・Ruby・JS・TS、s
 src/core/search.zig     プロジェクト全体の検索（ファイルの一覧、一致、前後2行の抜粋）
 src/core/git.zig        git の変更（HEAD との差分の行数、新規・削除）を別スレッドで取得
 src/core/diff.zig       行単位の差分（Myers）と、編集中の文書の HEAD との差分
-src/view/               描画、入力、フォント（FreeType）、ファイルツリー、検索結果の画面、右側の変更一覧、テーマ、SDL まわり、テスト用の入力再生
+src/view/               描画、入力、フォント（FreeType）、ファイルツリー、検索結果の画面、差分ビュー、右側の変更一覧、テーマ、SDL まわり、テスト用の入力再生
 src/tests.zig           ウィンドウの要らないテストの入口
 ```
 

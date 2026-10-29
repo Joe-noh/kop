@@ -29,6 +29,8 @@ pub const Theme = struct {
     changed: Color, // a file git says is modified, and its changed lines
     added: Color, // a new file, and lines added
     removed: Color, // a deleted file, and lines removed
+    added_bg: Color, // behind lines added, where a diff shows them
+    removed_bg: Color, // and lines removed
     tokens: [@typeInfo(Tok).@"enum".fields.len]Color, // by Tok
 
     pub fn token(t: *const Theme, kind: Tok) Color {
@@ -38,6 +40,16 @@ pub const Theme = struct {
 
 fn rgb(r: u8, g: u8, b: u8) Color {
     return .{ .r = r, .g = g, .b = b };
+}
+
+// `b` laid over `a`, `t` of the way.
+fn mix(a: Color, b: Color, t: f32) Color {
+    const m = struct {
+        fn f(x: u8, y: u8, k: f32) u8 {
+            return @intFromFloat(@round(@as(f32, @floatFromInt(x)) * (1 - k) + @as(f32, @floatFromInt(y)) * k));
+        }
+    }.f;
+    return .{ .r = m(a.r, b.r, t), .g = m(a.g, b.g, t), .b = m(a.b, b.b, t) };
 }
 
 // Flexoki dark (https://github.com/kepano/flexoki), as its Helix theme uses it.
@@ -79,6 +91,8 @@ pub fn flexokiDark() Theme {
         .changed = yellow,
         .added = green,
         .removed = rgb(0xD1, 0x4D, 0x41), // red
+        .added_bg = mix(base, green, 0.16),
+        .removed_bg = mix(base, rgb(0xD1, 0x4D, 0x41), 0.16),
         // text, keyword, type, constant, number, string, comment (italic in
         // Helix), function, tag, attribute, property (variable.other.member)
         // and variable (the same)
@@ -130,6 +144,8 @@ pub fn spacegray() Theme {
         .changed = base0a,
         .added = base0b,
         .removed = base08,
+        .added_bg = mix(base00, base0b, 0.16),
+        .removed_bg = mix(base00, base08, 0.16),
         // text, keyword, type (classes), constant, number, string, comment,
         // function, tag, attribute (-name), property (support.type.property-name),
         // variable

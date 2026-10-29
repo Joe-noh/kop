@@ -31,6 +31,7 @@ const input = @import("view/input.zig");
 const platform = @import("view/platform.zig");
 const Script = @import("view/script.zig").Script;
 const search_view = @import("view/search_view.zig");
+const diff_view = @import("view/diff_view.zig");
 const git = @import("core/git.zig");
 const changes_view = @import("view/changes.zig");
 const diff = @import("core/diff.zig");
@@ -208,6 +209,36 @@ fn takeGit(app: *App) !void {
     app.changes = got.value;
 }
 
+// Shows what has changed since HEAD over the document `ed`, until it goes
+// back to it or picks a place to open.
+fn showChanges(app: *App, ed: *Editor, v: *const View, sc: *render.Scratch) !diff_view.Action {
+    var s = diff_view.Screen.init(app.gpa);
+    defer s.deinit();
+    s.panel = &app.changes_panel;
+    s.panel_shown = &app.changes_shown;
+    const ch = app.changes orelse return .back;
+    try s.load(ch.list.items, ed, v.path.slice(), v.info);
+    _ = c.SDL_SetWindowTitle(app.win, "Changes — kop");
+    while (true) {
+        const idle = @mod(clock() - s.v.blink_at, 1.1);
+        const wait: i32 = @intFromFloat(@max((if (idle < 0.65) 0.65 - idle else 1.1 - idle) * 1000, 1));
+        if (!try gather(app, wait)) return .quit;
+        const frame_start = clock();
+        const action = try s.handle(app.gpa, &app.in, app.km, app.mac, app.tr);
+        switch (action) {
+            .none => {},
+            .open => |o| {
+                app.next.set(o.path);
+                return .{ .open = .{ .path = app.next.slice(), .line = o.line, .col = o.col } };
+            },
+            else => return action,
+        }
+        try s.draw(app.ren, app.fonts, app.tr, sc);
+        app.cursors.show(s.cursorAt(app.in.mouse_x, app.in.mouse_y));
+        if (finish(app, frame_start)) return .quit;
+    }
+}
+
 const Outcome = enum { quit, open };
 
 // Edits the file at `path` (none: an untitled document) until the window
@@ -319,6 +350,8 @@ fn editFile(app: *App, path: []const u8) !Outcome {
         if (app.changes != null) {
             app.changes_panel.scroll(&v, app.changes_panel.rows.items.len);
             if (v.changes_click) |y| {
+                // The heading shows them all as a diff.
+                if (y >= v.tree_y and y < v.tree_y + v.ui_line_h) v.diff_request = true;
                 if (app.changes_panel.changeAt(&v, y)) |e| if (e.kind != .deleted) {
                     v.open_path.set(e.path);
                     v.open_request = true;
@@ -326,6 +359,39 @@ fn editFile(app: *App, path: []const u8) !Outcome {
             }
         }
         v.changes_click = null;
+        if (v.diff_request) {
+            v.diff_request = false;
+            if (app.changes == null) {
+                say(&v, "Not in a git repository");
+            } else {
+                const action = try showChanges(app, &ed, &v, &sc);
+                // The document may have been edited, and saved, there.
+                live.stale = true;
+                if (!ed.h.modified()) {
+                    v.disk = state.DiskStamp.of(v.path.slice());
+                    v.disk_told = v.disk;
+                }
+                try askGit(app, v.path.slice());
+                switch (action) {
+                    .quit => break,
+                    .open => |o| {
+                        if (v.path.eql(o.path)) {
+                            const n = @min(o.line, ed.t.lf);
+                            ed.setSingle(Sel.caret(@min(ed.t.lineStart(n) + o.col, ed.t.lineEnd(n))));
+                            v.center = true;
+                        } else {
+                            v.open_path.set(o.path);
+                            v.open_request = true;
+                            app.goto = .{ .line = o.line, .col = o.col };
+                        }
+                    },
+                    else => {},
+                }
+                v.follow = true;
+                v.blink_at = clock();
+                setTitle(app, &v, ed.h.modified());
+            }
+        }
         if (v.search_request) {
             v.search_request = false;
             // The selection, when it is a few words on one line; else the last query.
@@ -416,7 +482,10 @@ fn editFile(app: *App, path: []const u8) !Outcome {
                 null;
             try app.changes_panel.build(gpa, ch, now_live);
             try app.changes_panel.draw(app.ren, &app.fonts.ui, &v, &sc);
-            if (app.in.mouse_x >= v.right_x and app.changes_panel.changeAt(&v, app.in.mouse_y) != null) cursor = .pointer;
+            // A change opens its file, and the heading the diff of them all.
+            const my = app.in.mouse_y;
+            const on_heading = my >= v.tree_y and my < v.tree_y + v.ui_line_h;
+            if (app.in.mouse_x >= v.right_x and (on_heading or app.changes_panel.changeAt(&v, my) != null)) cursor = .pointer;
         };
         app.cursors.show(cursor);
         if (finish(app, frame_start)) done = true;

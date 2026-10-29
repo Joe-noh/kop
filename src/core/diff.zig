@@ -28,16 +28,24 @@ pub const Hunk = struct {
 const max_edits = 4000;
 
 // Appends a hash of each line of `text` to `out`; a line's "\r" before its
-// "\n" is not part of it.
+// "\n" is not part of it. As git counts them, a text ending in a line
+// break has no line after it, and an empty one has none at all.
 pub fn hashLines(gpa: Allocator, text: []const u8, out: *std.ArrayList(u64)) !void {
     var start: usize = 0;
-    while (true) {
+    while (start < text.len) {
         const nl = std.mem.indexOfScalarPos(u8, text, start, '\n');
         var end = nl orelse text.len;
         if (end > start and text[end - 1] == '\r') end -= 1;
         try out.append(gpa, std.hash.Wyhash.hash(0, text[start..end]));
         start = (nl orelse return) + 1;
     }
+}
+
+// How many lines git counts in `text`.
+pub fn lineCount(text: []const u8) usize {
+    if (text.len == 0) return 0;
+    const n = std.mem.count(u8, text, "\n");
+    return if (text[text.len - 1] == '\n') n else n + 1;
 }
 
 // The hunks that turn the lines hashed in `a` into those in `b`, in order.
@@ -191,8 +199,6 @@ pub const Live = struct {
         try t.all(&l.buf);
         l.lines.clearRetainingCapacity();
         try hashLines(l.gpa, l.buf.items, &l.lines);
-        // A new file's lines are all added; an empty one has none.
-        if (!l.tracked and l.buf.items.len == 0) return;
         try diff(l.gpa, l.base.items, l.lines.items, &l.hunks);
         for (l.hunks.items) |h| {
             l.added += h.new_count;
@@ -321,5 +327,5 @@ test "live marks" {
     try l.setBase("", false);
     try l.update(&tt.t);
     try testing.expectEqual(Hunk.Kind.added, l.markAt(0, 6).kind.?);
-    try testing.expectEqual(@as(usize, 6), l.added);
+    try testing.expectEqual(@as(usize, 5), l.added);
 }

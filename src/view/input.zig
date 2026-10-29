@@ -243,7 +243,7 @@ fn barCommand(cx: Context, cmd: Command, shift: bool) !bool {
 }
 
 // Motions, for Editor.moveEach.
-const Move = struct {
+pub const Move = struct {
     cmd: Command,
     select: bool,
     step: usize = 1,
@@ -303,6 +303,7 @@ pub fn runCommand(cx: Context, cmd: Command, select: bool) !void {
             if (v.path.len > 0) v.reload_request = true;
         },
         .search_project => v.search_request = true,
+        .show_changes => v.diff_request = true,
         .toggle_changes => v.changes_toggle = true,
         .select_all => {
             ed.selectAll();

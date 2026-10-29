@@ -3,3 +3,4 @@
 /kop
 /zig-out/
 /.zig-cache/
+!/screenshot.png

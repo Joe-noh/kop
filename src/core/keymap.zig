@@ -63,6 +63,7 @@ pub const Command = enum {
     reload,
     search_project,
     toggle_changes,
+    show_changes,
 
     // Commands that move the carets, which select when Shift is held.
     pub fn isMotion(c: Command) bool {
@@ -97,6 +98,7 @@ const common_keys =
     \\mod+g find_next
     \\mod+shift+g find_previous
     \\mod+shift+f search_project
+    \\mod+shift+d show_changes
     \\mod+s save
     \\mod+q quit
     \\mod+b toggle_tree
