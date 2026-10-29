@@ -65,7 +65,8 @@ pub fn layout(ed: *const Editor, v: *View, tr: *Tree, f: *const Fonts, w: f32, h
     v.text_y = @round(tf.line_h * 0.3);
     v.text_bottom = h - bars_h - @round(tf.line_h * 0.3);
     v.rows = @max(@as(usize, @intFromFloat(@max(@floor((v.text_bottom - v.text_y) / tf.line_h), 0))), 1);
-    v.cols = @max(@as(usize, @intFromFloat(@max(@floor((w - v.text_x - tf.cell_w) / tf.cell_w), 0))), 1);
+    v.right_x = w - float(v.right_cells) * uf.cell_w;
+    v.cols = @max(@as(usize, @intFromFloat(@max(@floor((v.right_x - v.text_x - tf.cell_w) / tf.cell_w), 0))), 1);
     v.tree_y = @round(uf.line_h * 0.3);
     v.tree_bottom = h - bars_h;
     v.tree_rows = @max(@as(usize, @intFromFloat(@max(@floor((v.tree_bottom - v.tree_y) / uf.line_h), 1))) - 1, 1);
@@ -190,7 +191,7 @@ pub const Scratch = struct {
     }
 };
 
-fn drawTextArea(ren: *c.SDL_Renderer, f: *Face, ed: *const Editor, v: *const View, hl: *const syntax.Highlight, w: f32, sc: *Scratch) !void {
+fn drawTextArea(ren: *c.SDL_Renderer, f: *Face, ed: *const Editor, v: *const View, hl: *const syntax.Highlight, sc: *Scratch) !void {
     const t = &ed.t;
     const p = ed.primary();
     const current = t.lineOf(p.head);
@@ -198,7 +199,7 @@ fn drawTextArea(ren: *c.SDL_Renderer, f: *Face, ed: *const Editor, v: *const Vie
     const blink_on = @mod(now - v.blink_at, 1.1) < 0.65 or now - v.blink_at < 0.6;
     var lex_state: u8 = syntax.state_normal;
     var num_buf: [24]u8 = undefined;
-    _ = c.SDL_SetRenderClipRect(ren, &.{ .x = 0, .y = 0, .w = @intFromFloat(w), .h = @intFromFloat(v.text_bottom + @round(f.line_h * 0.3)) });
+    _ = c.SDL_SetRenderClipRect(ren, &.{ .x = 0, .y = 0, .w = @intFromFloat(v.right_x), .h = @intFromFloat(v.text_bottom + @round(f.line_h * 0.3)) });
     defer _ = c.SDL_SetRenderClipRect(ren, null);
     // One more row than fits: when scrolled part of a line, it shows at the bottom.
     for (0..v.rows + 1) |row| {
@@ -210,7 +211,7 @@ fn drawTextArea(ren: *c.SDL_Renderer, f: *Face, ed: *const Editor, v: *const Vie
         try t.readLine(n, &sc.line);
         const line = sc.line.items;
         const le = ls + line.len;
-        if (n == current and p.isEmpty()) fill(ren, v.panel_w, y, w - v.panel_w, f.line_h, th().current_line);
+        if (n == current and p.isEmpty()) fill(ren, v.panel_w, y, v.right_x - v.panel_w, f.line_h, th().current_line);
         // Matches of the search, on this line.
         if (v.bar == .find and v.query.len > 0) {
             var at: usize = 0;
@@ -363,7 +364,7 @@ pub fn draw(ren: *c.SDL_Renderer, f: *Fonts, ed: *const Editor, v: *View, tr: *T
     const bg = th().bg;
     _ = c.SDL_SetRenderDrawColor(ren, bg.r, bg.g, bg.b, 255);
     _ = c.SDL_RenderClear(ren);
-    try drawTextArea(ren, &f.text, ed, v, hl, w, sc);
+    try drawTextArea(ren, &f.text, ed, v, hl, sc);
     if (tr.shown) try drawTree(ren, &f.ui, v, tr, sc);
     try drawBars(ren, &f.ui, ed, v, w, h, sc);
 }

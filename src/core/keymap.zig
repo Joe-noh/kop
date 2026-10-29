@@ -62,6 +62,7 @@ pub const Command = enum {
     cancel,
     reload,
     search_project,
+    toggle_changes,
 
     // Commands that move the carets, which select when Shift is held.
     pub fn isMotion(c: Command) bool {
@@ -120,6 +121,7 @@ const mac_keys =
     \\ctrl+n down
     \\ctrl+p up
     \\ctrl+k delete_to_line_end
+    \\ctrl+shift+g toggle_changes
 ;
 
 // Elsewhere Ctrl moves by words.
@@ -128,6 +130,7 @@ const other_keys =
     \\ctrl+right word_right
     \\ctrl+backspace delete_word_left
     \\ctrl+delete delete_word_right
+    \\ctrl+alt+g toggle_changes
 ;
 
 pub const KeyName = struct {

@@ -32,7 +32,8 @@ src/core/keymap.zig     キーとコマンドの割り当て（既定値と、�
 src/core/syntax.zig     シンタックスハイライト（字句解析器への振り分け、行頭の状態のキャッシュ）
 src/core/syntax/        字句解析器（code: Zig・Goose・Ruby・JS・TS、style: CSS・SCSS・Sass、markup: HTML）、言語の定義、共通部品
 src/core/search.zig     プロジェクト全体の検索（ファイルの一覧、一致、前後2行の抜粋）
-src/view/               描画、入力、フォント（FreeType）、ファイルツリー、検索結果の画面、テーマ、SDL まわり、テスト用の入力再生
+src/core/git.zig        git の変更（HEAD との差分の行数、新規・削除）を別スレッドで取得
+src/view/               描画、入力、フォント（FreeType）、ファイルツリー、検索結果の画面、右側の変更一覧、テーマ、SDL まわり、テスト用の入力再生
 src/tests.zig           ウィンドウの要らないテストの入口
 ```
 

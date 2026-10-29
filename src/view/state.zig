@@ -77,6 +77,8 @@ pub const View = struct {
     rows: usize = 1,
     cols: usize = 1,
     panel_w: f32 = 0, // the file tree's width, left of the text
+    right_cells: usize = 0, // the width of the changes on the right, in the ui's cells; 0 when hidden
+    right_x: f32 = 0, // where they start
     text_x: f32 = 0,
     text_y: f32 = 0,
     text_bottom: f32 = 0,
@@ -113,6 +115,10 @@ pub const View = struct {
     disk_told: DiskStamp = .{},
     reload_request: bool = false,
     search_request: bool = false, // to search the whole project
+    changes_click: ?f32 = null, // a click on the changes, at this height
+    changes_wheel: f32 = 0, // the wheel turned over them, in rows
+    saves: usize = 0, // how many times the document was saved
+    changes_toggle: bool = false, // to show or hide the changes
     overwrite_ok: bool = false, // told that saving overwrites a change on disk; the next save does
 };
 

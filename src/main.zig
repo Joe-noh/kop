@@ -31,6 +31,8 @@ const input = @import("view/input.zig");
 const platform = @import("view/platform.zig");
 const Script = @import("view/script.zig").Script;
 const search_view = @import("view/search_view.zig");
+const git = @import("core/git.zig");
+const changes_view = @import("view/changes.zig");
 const Tree = @import("view/tree.zig").Tree;
 const fontfile = @import("view/fontfile.zig");
 const theme = @import("view/theme.zig");
@@ -63,6 +65,12 @@ const App = struct {
     reload_top: usize = 0,
     goto: ?struct { line: usize, col: usize } = null, // where to put the caret in the next document, col in bytes
     last_query: state.Buf(256) = .{}, // of the last search of the project
+    // What git says has changed, asked again now and then on a thread.
+    git: git.Refresher,
+    changes: ?git.Changes = null,
+    changes_shown: bool = true,
+    changes_panel: changes_view.Panel = .{},
+    git_asked: f64 = -100,
     started: f64 = 0,
     frame_time: f64 = 0, // the work of a frame, from input to handing the GPU its commands
     slowest: f64 = 0,
@@ -103,12 +111,14 @@ fn screenshot(app: *App, path: []const u8) void {
 
 // How long the window may wait for input before something on it changes
 // by itself: the caret blinking, the file looked at again.
-fn idleTimeout(v: *const View, now: f64) i32 {
+fn idleTimeout(app: *const App, v: *const View, now: f64) i32 {
     const since = now - v.blink_at;
     const phase = @mod(since, 1.1);
     var next: f64 = if (since < 0.6) 0.65 - since else if (phase < 0.65) 0.65 - phase else 1.1 - phase;
     next = @min(next, 1.0 - (now - v.disk_checked));
     if (now - v.message_at < 4.0) next = @min(next, 4.0 - (now - v.message_at));
+    // git, answering or to be asked again.
+    next = @min(next, if (app.git.thread != null) 0.03 else git_every - (now - app.git_asked));
     return @intFromFloat(std.math.clamp(next * 1000, 1, 1000));
 }
 
@@ -180,6 +190,22 @@ fn searchProject(app: *App, root: []const u8, query: []const u8, sc: *render.Scr
     }
 }
 
+// How often to ask git again, in seconds, while nothing else prompts it.
+const git_every = 3.0;
+
+fn askGit(app: *App, path: []const u8) !void {
+    try app.git.start(projectRoot(app, path));
+    app.git_asked = clock();
+}
+
+// Takes git's answer, if one has come.
+fn takeGit(app: *App) !void {
+    const got = try app.git.take();
+    if (!got.answered) return;
+    if (app.changes) |*old| old.deinit();
+    app.changes = got.changes;
+}
+
 const Outcome = enum { quit, open };
 
 // Edits the file at `path` (none: an untitled document) until the window
@@ -246,6 +272,8 @@ fn editFile(app: *App, path: []const u8) !Outcome {
 
     var sc = render.Scratch{ .gpa = gpa };
     defer sc.deinit();
+    try askGit(app, path);
+    var saves_seen: usize = 0;
     setTitle(app, &v, false);
     var was_dirty = false;
     var ime_x: f32 = -1;
@@ -255,10 +283,36 @@ fn editFile(app: *App, path: []const u8) !Outcome {
     while (!done) {
         // Input, waiting for it when nothing on the screen moves by itself.
         const busy = v.drag != .none or v.follow or hl.stateAt(@min(v.top + v.rows + 1, ed.t.lf)) == null;
-        if (!try gather(app, if (busy) null else idleTimeout(&v, clock()))) done = true;
+        if (!try gather(app, if (busy) null else idleTimeout(app, &v, clock()))) done = true;
         const frame_start = clock();
         try input.handle(cx, &app.in);
         if (v.quit) break;
+        // The changes: asked for again when the document is saved, the
+        // window comes to the front, or a while has passed.
+        var focused = false;
+        for (app.in.events.items) |e| if (e == .focus) {
+            focused = true;
+        };
+        if (v.saves != saves_seen or focused or frame_start - app.git_asked > git_every) {
+            saves_seen = v.saves;
+            try askGit(app, v.path.slice());
+        }
+        try takeGit(app);
+        if (v.changes_toggle) {
+            v.changes_toggle = false;
+            app.changes_shown = !app.changes_shown;
+        }
+        v.right_cells = if (app.changes_shown and app.changes != null) changes_view.cells else 0;
+        if (app.changes) |*ch| {
+            app.changes_panel.scroll(&v, ch.list.items.len);
+            if (v.changes_click) |y| {
+                if (app.changes_panel.changeAt(&v, ch, y)) |e| if (e.kind != .deleted) {
+                    v.open_path.set(e.path);
+                    v.open_request = true;
+                };
+            }
+        }
+        v.changes_click = null;
         if (v.search_request) {
             v.search_request = false;
             // The selection, when it is a few words on one line; else the last query.
@@ -334,7 +388,12 @@ fn editFile(app: *App, path: []const u8) !Outcome {
         _ = try hl.extend(&ed.t, v.top + v.rows + 1, 0.003);
 
         try render.draw(app.ren, app.fonts, &ed, &v, app.tr, &hl, &sc);
-        app.cursors.show(input.cursorAt(&v, app.tr, &app.in));
+        var cursor = input.cursorAt(&v, app.tr, &app.in);
+        if (v.right_cells > 0) if (app.changes) |*ch| {
+            try app.changes_panel.draw(app.ren, &app.fonts.ui, &v, ch, &sc);
+            if (app.in.mouse_x >= v.right_x and app.changes_panel.changeAt(&v, ch, app.in.mouse_y) != null) cursor = .pointer;
+        };
+        app.cursors.show(cursor);
         if (finish(app, frame_start)) done = true;
 
         // The input method's candidates open at the primary caret.
@@ -462,10 +521,13 @@ pub fn main() !void {
         .cursors = platform.Cursors.init(),
         .script = if (script_src) |s| Script.init(s, mac) else null,
         .frames = frames,
+        .git = .{ .gpa = gpa },
         .profile = profile,
         .started = clock(),
     };
     defer app.in.deinit();
+    defer app.git.deinit();
+    defer if (app.changes) |*ch| ch.deinit();
     defer app.cursors.deinit();
     app.notice.set(problems.items);
     if (is_dir) try tr.open(path_arg) else app.next.set(path_arg);

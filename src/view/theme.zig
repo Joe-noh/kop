@@ -26,6 +26,9 @@ pub const Theme = struct {
     tree_fg: Color, // a file's name
     tree_dir_fg: Color, // a directory's
     tree_current_fg: Color, // the file being edited
+    changed: Color, // a file git says is modified, and its changed lines
+    added: Color, // a new file, and lines added
+    removed: Color, // a deleted file, and lines removed
     tokens: [@typeInfo(Tok).@"enum".fields.len]Color, // by Tok
 
     pub fn token(t: *const Theme, kind: Tok) Color {
@@ -73,6 +76,9 @@ pub fn flexokiDark() Theme {
         .tree_fg = tx,
         .tree_dir_fg = blue,
         .tree_current_fg = tx, // ui.text.directory
+        .changed = yellow,
+        .added = green,
+        .removed = rgb(0xD1, 0x4D, 0x41), // red
         // text, keyword, type, constant, number, string, comment (italic in
         // Helix), function, tag, attribute, property (variable.other.member)
         // and variable (the same)
@@ -121,6 +127,9 @@ pub fn spacegray() Theme {
         .tree_fg = base04,
         .tree_dir_fg = base04,
         .tree_current_fg = base06, // sidebar_label, selected
+        .changed = base0a,
+        .added = base0b,
+        .removed = base08,
         // text, keyword, type (classes), constant, number, string, comment,
         // function, tag, attribute (-name), property (support.type.property-name),
         // variable

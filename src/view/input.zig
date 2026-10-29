@@ -32,6 +32,7 @@ pub const Event = union(enum) {
     button: struct { x: f32, y: f32, down: bool, clicks: u8, left: bool },
     motion: struct { x: f32, y: f32 },
     wheel: struct { x: f32, y: f32 },
+    focus, // the window came to the front
     quit,
 };
 
@@ -121,6 +122,7 @@ pub const Input = struct {
         const d = in.density;
         switch (e.type) {
             c.SDL_EVENT_QUIT, c.SDL_EVENT_WINDOW_CLOSE_REQUESTED => try in.push(.quit),
+            c.SDL_EVENT_WINDOW_FOCUS_GAINED => try in.push(.focus),
             c.SDL_EVENT_KEY_DOWN, c.SDL_EVENT_KEY_UP => try in.push(.{ .key = .{ .mods = modsOf(e.key.mod), .key = keyName(e.key.key), .down = e.key.down } }),
             c.SDL_EVENT_TEXT_INPUT => try in.pushText(std.mem.span(e.text.text)),
             c.SDL_EVENT_TEXT_EDITING => try in.pushEditing(if (e.edit.text) |t| std.mem.span(t) else ""),
@@ -184,6 +186,7 @@ pub fn saveDoc(cx: Context) !void {
         return;
     };
     cx.ed.h.markSaved();
+    v.saves += 1;
     v.overwrite_ok = false;
     v.disk = state.DiskStamp.of(v.path.slice());
     v.disk_told = v.disk;
@@ -300,6 +303,7 @@ pub fn runCommand(cx: Context, cmd: Command, select: bool) !void {
             if (v.path.len > 0) v.reload_request = true;
         },
         .search_project => v.search_request = true,
+        .toggle_changes => v.changes_toggle = true,
         .select_all => {
             ed.selectAll();
             touched(v);
@@ -393,6 +397,10 @@ fn onButton(cx: Context, x: f32, y: f32, clicks: u8, shift: bool) !void {
     const ed = cx.ed;
     const v = cx.v;
     if (x < v.panel_w) return onTreeClick(cx, x, y);
+    if (v.right_cells > 0 and x >= v.right_x) {
+        if (y < v.tree_bottom) v.changes_click = y;
+        return;
+    }
     if (y >= v.text_bottom) return;
     const pos = try render.hit(ed, v, x, y);
     if (clicks >= 3) {
@@ -460,7 +468,9 @@ pub fn handle(cx: Context, in: *Input) !void {
             },
             .button => |b| if (b.left and b.down) try onButton(cx, b.x, b.y, b.clicks, in.mods.shift),
             .wheel => |w| {
-                if (in.mouse_x < v.panel_w) {
+                if (v.right_cells > 0 and in.mouse_x >= v.right_x) {
+                    v.changes_wheel += w.y * 3;
+                } else if (in.mouse_x < v.panel_w) {
                     cx.tr.wheel += w.y * 3;
                     const rows = @trunc(cx.tr.wheel);
                     cx.tr.wheel -= rows;
@@ -495,6 +505,7 @@ pub fn cursorAt(v: *const View, tr: *const Tree, in: *const Input) platform.Curs
     const x = in.mouse_x;
     const y = in.mouse_y;
     if (x < v.panel_w) return if (render.treeRowAt(v, tr, x, y) == .row) .pointer else .arrow;
+    if (v.right_cells > 0 and x >= v.right_x) return .arrow;
     if (x >= v.text_x and y >= 0 and y < v.text_bottom) return .text;
     return .arrow;
 }
