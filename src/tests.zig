@@ -14,6 +14,7 @@ test {
     _ = @import("core/syntax.zig");
     _ = @import("core/search.zig");
     _ = @import("core/git.zig");
+    _ = @import("core/diff.zig");
     _ = @import("view/fontfile.zig");
     _ = @import("view/tree.zig");
 }

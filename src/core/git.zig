@@ -2,7 +2,7 @@
 // HEAD, staged or not, and the new files it does not track yet, each with
 // how many lines it adds and removes.
 //
-// Asking git takes a moment, so a Refresher asks it on a thread of its
+// Asking git takes a moment, so Background asks it on a thread of its
 // own, one question at a time, and the window takes the answer when it
 // comes.
 
@@ -138,61 +138,104 @@ pub fn collect(gpa: Allocator, dir: []const u8) !?Changes {
     return c;
 }
 
-// Asks git on a thread of its own. start() asks (again, once the question
-// in flight is answered, if one is); take() hands over the latest answer.
-pub const Refresher = struct {
+// What a file was at HEAD, to tell how it has changed since.
+pub const Head = struct {
     gpa: Allocator,
-    dir: std.ArrayList(u8) = .empty,
-    thread: ?std.Thread = null,
-    done: std.atomic.Value(bool) = .init(false),
-    again: bool = false,
-    answer: ?Changes = null, // written by the thread, read once `done`
-    failed: bool = false,
+    data: []u8, // empty for a file git does not track yet
+    tracked: bool,
 
-    pub fn deinit(r: *Refresher) void {
-        if (r.thread) |t| t.join();
-        if (r.answer) |*a| a.deinit();
-        r.dir.deinit(r.gpa);
-    }
-
-    fn work(r: *Refresher) void {
-        r.answer = collect(r.gpa, r.dir.items) catch blk: {
-            r.failed = true;
-            break :blk null;
-        };
-        r.done.store(true, .release);
-    }
-
-    pub fn start(r: *Refresher, dir: []const u8) !void {
-        if (r.thread != null) {
-            r.again = true;
-            return;
-        }
-        r.dir.clearRetainingCapacity();
-        try r.dir.appendSlice(r.gpa, dir);
-        r.done.store(false, .release);
-        r.failed = false;
-        r.thread = try std.Thread.spawn(.{}, work, .{r});
-    }
-
-    // The answer, once there is one: the changes, or null outside a
-    // repository. `answered` says whether there is one this time.
-    pub fn take(r: *Refresher) !struct { answered: bool, changes: ?Changes } {
-        const t = r.thread orelse return .{ .answered = false, .changes = null };
-        if (!r.done.load(.acquire)) return .{ .answered = false, .changes = null };
-        t.join();
-        r.thread = null;
-        const got = r.answer;
-        r.answer = null;
-        if (r.again) {
-            r.again = false;
-            const dir = try r.gpa.dupe(u8, r.dir.items);
-            defer r.gpa.free(dir);
-            try r.start(dir);
-        }
-        return .{ .answered = true, .changes = got };
+    pub fn deinit(h: *Head) void {
+        h.gpa.free(h.data);
     }
 };
+
+// The file at `path` as HEAD has it; null outside a repository, and for
+// a file git ignores.
+pub fn headVersion(gpa: Allocator, path: []const u8) !?Head {
+    const dir = std.fs.path.dirname(path) orelse ".";
+    const spec = try std.fmt.allocPrint(gpa, "HEAD:./{s}", .{std.fs.path.basename(path)});
+    defer gpa.free(spec);
+    if (try run(gpa, dir, &.{ "show", spec })) |data| return .{ .gpa = gpa, .data = data, .tracked = true };
+    // Not at HEAD: a new file of a repository, or no repository's at all.
+    const inside = try run(gpa, dir, &.{ "rev-parse", "--is-inside-work-tree" }) orelse return null;
+    gpa.free(inside);
+    if (try run(gpa, dir, &.{ "check-ignore", "-q", std.fs.path.basename(path) })) |o| {
+        gpa.free(o);
+        return null;
+    }
+    return .{ .gpa = gpa, .data = try gpa.alloc(u8, 0), .tracked = false };
+}
+
+// Runs `work` on a thread of its own, one question at a time: start()
+// asks, or asks once the question in flight is answered; take() hands
+// over an answer when there is one, with the question it answers. An
+// answer that failed is null, as is one there is nothing to say for.
+pub fn Background(comptime T: type, comptime work: fn (Allocator, []const u8) anyerror!?T) type {
+    return struct {
+        gpa: Allocator,
+        input: std.ArrayList(u8) = .empty, // the question in flight
+        next: std.ArrayList(u8) = .empty, // the one to ask after it
+        has_next: bool = false,
+        thread: ?std.Thread = null,
+        done: std.atomic.Value(bool) = .init(false),
+        answer: ?T = null, // written by the thread, read once `done`
+
+        const Self = @This();
+
+        pub const Answer = struct { question: []const u8, value: ?T };
+
+        pub fn deinit(b: *Self) void {
+            if (b.thread) |t| t.join();
+            if (b.answer) |*a| a.deinit();
+            b.input.deinit(b.gpa);
+            b.next.deinit(b.gpa);
+        }
+
+        fn run_(b: *Self) void {
+            b.answer = work(b.gpa, b.input.items) catch null;
+            b.done.store(true, .release);
+        }
+
+        pub fn busy(b: *const Self) bool {
+            return b.thread != null;
+        }
+
+        pub fn start(b: *Self, question: []const u8) !void {
+            if (b.thread != null) {
+                b.next.clearRetainingCapacity();
+                try b.next.appendSlice(b.gpa, question);
+                b.has_next = true;
+                return;
+            }
+            b.input.clearRetainingCapacity();
+            try b.input.appendSlice(b.gpa, question);
+            b.done.store(false, .release);
+            b.thread = try std.Thread.spawn(.{}, run_, .{b});
+        }
+
+        // The question in the answer stays good until the next take().
+        pub fn take(b: *Self) !?Answer {
+            const t = b.thread orelse return null;
+            if (!b.done.load(.acquire)) return null;
+            t.join();
+            b.thread = null;
+            const value = b.answer;
+            b.answer = null;
+            // The answered question moves to `next`'s buffer, so the next
+            // one can go in flight.
+            std.mem.swap(std.ArrayList(u8), &b.input, &b.next);
+            if (b.has_next) {
+                b.has_next = false;
+                b.done.store(false, .release);
+                b.thread = try std.Thread.spawn(.{}, run_, .{b});
+            }
+            return .{ .question = b.next.items, .value = value };
+        }
+    };
+}
+
+pub const Refresher = Background(Changes, collect);
+pub const HeadLoader = Background(Head, headVersion);
 
 test "status and numstat" {
     const testing = std.testing;

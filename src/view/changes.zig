@@ -25,9 +25,42 @@ fn float(n: usize) f32 {
     return @floatFromInt(n);
 }
 
+// The document being edited, as it differs from HEAD now, saved or not.
+pub const Live = struct { path: []const u8, added: usize, removed: usize, tracked: bool };
+
 pub const Panel = struct {
     top: usize = 0, // the first change shown
     wheel: f32 = 0,
+    rows: std.ArrayList(git.Change) = .empty, // git's changes, with the document's own as it is now
+
+    pub fn deinit(p: *Panel, gpa: std.mem.Allocator) void {
+        p.rows.deinit(gpa);
+    }
+
+    // The rows: git's changes, the document's counted as it is now, and
+    // the document itself first if git does not have it yet.
+    pub fn build(p: *Panel, gpa: std.mem.Allocator, ch: *const git.Changes, live: ?Live) !void {
+        p.rows.clearRetainingCapacity();
+        var found = false;
+        for (ch.list.items) |e| {
+            var row = e;
+            if (live) |l| if (std.mem.eql(u8, e.path, l.path)) {
+                found = true;
+                row.added = l.added;
+                row.removed = l.removed;
+            };
+            try p.rows.append(gpa, row);
+        }
+        if (live) |l| if (!found and l.added + l.removed > 0) {
+            try p.rows.insert(gpa, 0, .{
+                .path = l.path,
+                .name = std.fs.path.basename(l.path),
+                .kind = if (l.tracked) .modified else .added,
+                .added = l.added,
+                .removed = l.removed,
+            });
+        };
+    }
 
     // How many rows of changes fit below the heading.
     fn fits(v: *const View) usize {
@@ -44,15 +77,15 @@ pub const Panel = struct {
     }
 
     // The change at height `y`.
-    pub fn changeAt(p: *const Panel, v: *const View, ch: *const git.Changes, y: f32) ?*const git.Change {
+    pub fn changeAt(p: *const Panel, v: *const View, y: f32) ?*const git.Change {
         if (y < v.tree_y) return null;
         const row: usize = @intFromFloat((y - v.tree_y) / v.ui_line_h);
         if (row == 0) return null;
         const i = p.top + row - 1;
-        return if (i < ch.list.items.len) &ch.list.items[i] else null;
+        return if (i < p.rows.items.len) &p.rows.items[i] else null;
     }
 
-    pub fn draw(p: *Panel, ren: *c.SDL_Renderer, f: *font.Face, v: *const View, ch: *const git.Changes, sc: *render.Scratch) !void {
+    pub fn draw(p: *Panel, ren: *c.SDL_Renderer, f: *font.Face, v: *const View, sc: *render.Scratch) !void {
         const gpa = sc.gpa;
         const x0 = v.right_x;
         const w = float(cells) * f.cell_w;
@@ -60,7 +93,7 @@ pub const Panel = struct {
         fill(ren, x0, 0, 1, v.tree_bottom, th().panel_edge);
         const s = &sc.s;
         s.clearRetainingCapacity();
-        const list = ch.list.items;
+        const list = p.rows.items;
         if (list.len == 0) try s.appendSlice(gpa, "No changes") else try s.print(gpa, "Changes  {d}", .{list.len});
         _ = try f.drawStr(x0 + f.cell_w, v.tree_y, s.items, th().hint_fg);
         p.top = @min(p.top, list.len -| fits(v));

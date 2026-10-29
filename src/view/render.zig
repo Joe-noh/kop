@@ -11,6 +11,7 @@ const motion = @import("../core/motion.zig");
 const utf8 = @import("../core/utf8.zig");
 const width = @import("../core/width.zig");
 const syntax = @import("../core/syntax.zig");
+const diff = @import("../core/diff.zig");
 const Span = syntax.Span;
 const state = @import("state.zig");
 const View = state.View;
@@ -39,6 +40,12 @@ fn triangle(ren: *c.SDL_Renderer, pts: [3][2]f32, color: Color) void {
     _ = c.SDL_RenderGeometry(ren, null, &vs, 3, null, 0);
 }
 
+// The room either side of the gutter: before the line numbers, and
+// between the marks after them and the text.
+pub fn gutterPad(cell_w: f32) f32 {
+    return @round(cell_w * 0.5);
+}
+
 pub fn digits(n: usize) usize {
     var d: usize = 1;
     var x = n;
@@ -61,7 +68,7 @@ pub fn layout(ed: *const Editor, v: *View, tr: *Tree, f: *const Fonts, w: f32, h
     v.ui_line_h = uf.line_h;
     const bars_h = @as(f32, if (v.bar != .none) 2 else 1) * uf.line_h;
     v.panel_w = if (tr.shown) float(tr.width) * uf.cell_w else 0;
-    v.text_x = v.panel_w + float(@max(digits(ed.t.lineCount()), 3) + 2) * tf.cell_w;
+    v.text_x = v.panel_w + float(@max(digits(ed.t.lineCount()), 3) + 2) * tf.cell_w + 2 * gutterPad(tf.cell_w);
     v.text_y = @round(tf.line_h * 0.3);
     v.text_bottom = h - bars_h - @round(tf.line_h * 0.3);
     v.rows = @max(@as(usize, @intFromFloat(@max(@floor((v.text_bottom - v.text_y) / tf.line_h), 0))), 1);
@@ -191,7 +198,7 @@ pub const Scratch = struct {
     }
 };
 
-fn drawTextArea(ren: *c.SDL_Renderer, f: *Face, ed: *const Editor, v: *const View, hl: *const syntax.Highlight, sc: *Scratch) !void {
+fn drawTextArea(ren: *c.SDL_Renderer, f: *Face, ed: *const Editor, v: *const View, hl: *const syntax.Highlight, live: ?*const diff.Live, sc: *Scratch) !void {
     const t = &ed.t;
     const p = ed.primary();
     const current = t.lineOf(p.head);
@@ -228,8 +235,9 @@ fn drawTextArea(ren: *c.SDL_Renderer, f: *Face, ed: *const Editor, v: *const Vie
         }
         // The line number, right-aligned in the gutter.
         const num = std.fmt.bufPrint(&num_buf, "{d}", .{n + 1}) catch unreachable;
-        const nx = v.text_x - float(num.len + 1) * f.cell_w;
+        const nx = v.text_x - gutterPad(f.cell_w) - float(num.len + 1) * f.cell_w;
         _ = try f.drawStr(nx, y, num, if (n == current) th().gutter_fg_current else th().gutter_fg);
+        if (live) |l| drawMark(ren, f, v, l.markAt(n, t.lineCount()), y);
         // The state the line starts in: known, or carried on from the row above.
         if (hl.stateAt(n)) |known| lex_state = known;
         sc.spans.clearRetainingCapacity();
@@ -343,7 +351,19 @@ pub fn drawTree(ren: *c.SDL_Renderer, f: *Face, v: *const View, tr: *const Tree,
     }
 }
 
-pub fn draw(ren: *c.SDL_Renderer, f: *Fonts, ed: *const Editor, v: *View, tr: *Tree, hl: *const syntax.Highlight, sc: *Scratch) !void {
+// How a line differs from HEAD, between its number and its text: a bar,
+// green for added and yellow for changed, and a red wedge where lines were
+// removed.
+fn drawMark(ren: *c.SDL_Renderer, f: *Face, v: *const View, m: diff.Live.Mark, y: f32) void {
+    const bw = @max(@round(f.cell_w * 0.3), 2);
+    const x = v.text_x - gutterPad(f.cell_w) - @round(f.cell_w * 0.75);
+    if (m.kind) |k| fill(ren, x, y, bw, f.line_h, if (k == .added) th().added else th().changed);
+    const r = @round(f.cell_w * 0.45);
+    if (m.removed_above) triangle(ren, .{ .{ x - 1, y - r }, .{ x + r * 1.2, y }, .{ x - 1, y + r } }, th().removed);
+    if (m.removed_below) triangle(ren, .{ .{ x - 1, y + f.line_h - r }, .{ x + r * 1.2, y + f.line_h }, .{ x - 1, y + f.line_h + r } }, th().removed);
+}
+
+pub fn draw(ren: *c.SDL_Renderer, f: *Fonts, ed: *const Editor, v: *View, tr: *Tree, hl: *const syntax.Highlight, live: ?*const diff.Live, sc: *Scratch) !void {
     var pw: c_int = 0;
     var ph: c_int = 0;
     _ = c.SDL_GetCurrentRenderOutputSize(ren, &pw, &ph);
@@ -364,7 +384,7 @@ pub fn draw(ren: *c.SDL_Renderer, f: *Fonts, ed: *const Editor, v: *View, tr: *T
     const bg = th().bg;
     _ = c.SDL_SetRenderDrawColor(ren, bg.r, bg.g, bg.b, 255);
     _ = c.SDL_RenderClear(ren);
-    try drawTextArea(ren, &f.text, ed, v, hl, sc);
+    try drawTextArea(ren, &f.text, ed, v, hl, live, sc);
     if (tr.shown) try drawTree(ren, &f.ui, v, tr, sc);
     try drawBars(ren, &f.ui, ed, v, w, h, sc);
 }

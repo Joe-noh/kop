@@ -346,7 +346,7 @@ pub const Screen = struct {
         if (s.results) |r| for (r.files.items) |fr| {
             widest = @max(widest, fr.excerpts[fr.excerpts.len - 1].last + 1);
         };
-        v.text_x = v.panel_w + float(@max(render.digits(widest), 3) + 2) * tf.cell_w;
+        v.text_x = v.panel_w + float(@max(render.digits(widest), 3) + 2) * tf.cell_w + 2 * render.gutterPad(tf.cell_w);
         v.text_y = s.field_h + @round(tf.line_h * 0.3);
         v.text_bottom = h - uf.line_h;
         v.rows = @max(@as(usize, @intFromFloat(@max(@floor((v.text_bottom - v.text_y) / tf.line_h), 1))), 1);
@@ -426,7 +426,7 @@ pub const Screen = struct {
                 .gap => {
                     const mid = y + @round(tf.line_h * 0.5);
                     fill(ren, v.text_x, mid, w - v.text_x - tf.cell_w, 1, th().panel_edge);
-                    _ = try tf.drawStr(v.text_x - float(3) * tf.cell_w, y, "⋯", th().gutter_fg);
+                    _ = try tf.drawStr(v.text_x - render.gutterPad(tf.cell_w) - float(3) * tf.cell_w, y, "⋯", th().gutter_fg);
                 },
                 .line => {
                     const line = fr.line(r.line);
@@ -437,7 +437,7 @@ pub const Screen = struct {
                         render.fillCols(ren, v, y, cols.a, cols.b, th().match_bg);
                     }
                     const num = std.fmt.bufPrint(&num_buf, "{d}", .{r.line + 1}) catch unreachable;
-                    _ = try tf.drawStr(v.text_x - float(num.len + 1) * tf.cell_w, y, num, if (i == s.cursor) th().gutter_fg_current else th().gutter_fg);
+                    _ = try tf.drawStr(v.text_x - render.gutterPad(tf.cell_w) - float(num.len + 1) * tf.cell_w, y, num, if (i == s.cursor) th().gutter_fg_current else th().gutter_fg);
                     sc.spans.clearRetainingCapacity();
                     if (syntax.languages.languageFor(fr.path)) |l| _ = try syntax.lexLine(s.gpa, l, line, r.state, &sc.spans);
                     try render.drawLine(ren, tf, v, line, y, sc.spans.items);

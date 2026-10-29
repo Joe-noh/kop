@@ -33,6 +33,7 @@ const Script = @import("view/script.zig").Script;
 const search_view = @import("view/search_view.zig");
 const git = @import("core/git.zig");
 const changes_view = @import("view/changes.zig");
+const diff = @import("core/diff.zig");
 const Tree = @import("view/tree.zig").Tree;
 const fontfile = @import("view/fontfile.zig");
 const theme = @import("view/theme.zig");
@@ -67,6 +68,7 @@ const App = struct {
     last_query: state.Buf(256) = .{}, // of the last search of the project
     // What git says has changed, asked again now and then on a thread.
     git: git.Refresher,
+    head: git.HeadLoader, // the document's file as HEAD has it
     changes: ?git.Changes = null,
     changes_shown: bool = true,
     changes_panel: changes_view.Panel = .{},
@@ -118,7 +120,7 @@ fn idleTimeout(app: *const App, v: *const View, now: f64) i32 {
     next = @min(next, 1.0 - (now - v.disk_checked));
     if (now - v.message_at < 4.0) next = @min(next, 4.0 - (now - v.message_at));
     // git, answering or to be asked again.
-    next = @min(next, if (app.git.thread != null) 0.03 else git_every - (now - app.git_asked));
+    next = @min(next, if (app.git.busy() or app.head.busy()) 0.03 else git_every - (now - app.git_asked));
     return @intFromFloat(std.math.clamp(next * 1000, 1, 1000));
 }
 
@@ -195,15 +197,15 @@ const git_every = 3.0;
 
 fn askGit(app: *App, path: []const u8) !void {
     try app.git.start(projectRoot(app, path));
+    if (path.len > 0) try app.head.start(path);
     app.git_asked = clock();
 }
 
 // Takes git's answer, if one has come.
 fn takeGit(app: *App) !void {
-    const got = try app.git.take();
-    if (!got.answered) return;
+    const got = try app.git.take() orelse return;
     if (app.changes) |*old| old.deinit();
-    app.changes = got.changes;
+    app.changes = got.value;
 }
 
 const Outcome = enum { quit, open };
@@ -272,8 +274,11 @@ fn editFile(app: *App, path: []const u8) !Outcome {
 
     var sc = render.Scratch{ .gpa = gpa };
     defer sc.deinit();
+    var live = diff.Live{ .gpa = gpa };
+    defer live.deinit();
     try askGit(app, path);
     var saves_seen: usize = 0;
+    var edited_at: f64 = 0;
     setTitle(app, &v, false);
     var was_dirty = false;
     var ime_x: f32 = -1;
@@ -282,7 +287,7 @@ fn editFile(app: *App, path: []const u8) !Outcome {
     var done = false;
     while (!done) {
         // Input, waiting for it when nothing on the screen moves by itself.
-        const busy = v.drag != .none or v.follow or hl.stateAt(@min(v.top + v.rows + 1, ed.t.lf)) == null;
+        const busy = v.drag != .none or v.follow or hl.stateAt(@min(v.top + v.rows + 1, ed.t.lf)) == null or (live.has_base and live.stale);
         if (!try gather(app, if (busy) null else idleTimeout(app, &v, clock()))) done = true;
         const frame_start = clock();
         try input.handle(cx, &app.in);
@@ -298,15 +303,23 @@ fn editFile(app: *App, path: []const u8) !Outcome {
             try askGit(app, v.path.slice());
         }
         try takeGit(app);
+        if (try app.head.take()) |answer| {
+            var value = answer.value;
+            defer if (value) |*h| h.deinit();
+            // An answer about a document gone since is no use.
+            if (std.mem.eql(u8, answer.question, v.path.slice())) {
+                if (value) |h| try live.setBase(h.data, h.tracked) else live.clearBase();
+            }
+        }
         if (v.changes_toggle) {
             v.changes_toggle = false;
             app.changes_shown = !app.changes_shown;
         }
         v.right_cells = if (app.changes_shown and app.changes != null) changes_view.cells else 0;
-        if (app.changes) |*ch| {
-            app.changes_panel.scroll(&v, ch.list.items.len);
+        if (app.changes != null) {
+            app.changes_panel.scroll(&v, app.changes_panel.rows.items.len);
             if (v.changes_click) |y| {
-                if (app.changes_panel.changeAt(&v, ch, y)) |e| if (e.kind != .deleted) {
+                if (app.changes_panel.changeAt(&v, y)) |e| if (e.kind != .deleted) {
                     v.open_path.set(e.path);
                     v.open_request = true;
                 };
@@ -386,12 +399,24 @@ fn editFile(app: *App, path: []const u8) !Outcome {
         const dirty_from = ed.t.takeDirty();
         if (dirty_from != text.not_dirty) hl.edited(&ed.t, dirty_from);
         _ = try hl.extend(&ed.t, v.top + v.rows + 1, 0.003);
+        // The difference from HEAD, found again after an edit: for a big
+        // file, only once typing pauses for a moment.
+        if (dirty_from != text.not_dirty) {
+            live.stale = true;
+            edited_at = frame_start;
+        }
+        if (ed.t.len < 512 << 10 or frame_start - edited_at > 0.2) try live.update(&ed.t);
 
-        try render.draw(app.ren, app.fonts, &ed, &v, app.tr, &hl, &sc);
+        try render.draw(app.ren, app.fonts, &ed, &v, app.tr, &hl, if (live.has_base) &live else null, &sc);
         var cursor = input.cursorAt(&v, app.tr, &app.in);
         if (v.right_cells > 0) if (app.changes) |*ch| {
-            try app.changes_panel.draw(app.ren, &app.fonts.ui, &v, ch, &sc);
-            if (app.in.mouse_x >= v.right_x and app.changes_panel.changeAt(&v, ch, app.in.mouse_y) != null) cursor = .pointer;
+            const now_live: ?changes_view.Live = if (live.has_base and v.path.len > 0)
+                .{ .path = v.path.slice(), .added = live.added, .removed = live.removed, .tracked = live.tracked }
+            else
+                null;
+            try app.changes_panel.build(gpa, ch, now_live);
+            try app.changes_panel.draw(app.ren, &app.fonts.ui, &v, &sc);
+            if (app.in.mouse_x >= v.right_x and app.changes_panel.changeAt(&v, app.in.mouse_y) != null) cursor = .pointer;
         };
         app.cursors.show(cursor);
         if (finish(app, frame_start)) done = true;
@@ -522,11 +547,14 @@ pub fn main() !void {
         .script = if (script_src) |s| Script.init(s, mac) else null,
         .frames = frames,
         .git = .{ .gpa = gpa },
+        .head = .{ .gpa = gpa },
         .profile = profile,
         .started = clock(),
     };
     defer app.in.deinit();
     defer app.git.deinit();
+    defer app.head.deinit();
+    defer app.changes_panel.deinit(gpa);
     defer if (app.changes) |*ch| ch.deinit();
     defer app.cursors.deinit();
     app.notice.set(problems.items);
