@@ -1,4 +1,5 @@
 .tools/
 *.png
 /kop
-/build/
+/zig-out/
+/.zig-cache/
