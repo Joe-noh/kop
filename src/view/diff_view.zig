@@ -5,6 +5,7 @@
 // had open is edited through its own editor, so its history goes on.
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const Allocator = std.mem.Allocator;
 const c = @import("c.zig").c;
 const text = @import("../core/text.zig");
@@ -156,7 +157,7 @@ pub const Screen = struct {
                 if (std.mem.eql(u8, ch.path, own_path)) {
                     f.ed = own;
                     f.info = own_info;
-                } else if (std.fs.cwd().readFileAlloc(s.gpa, ch.path, diff.Live.max_bytes)) |data| {
+                } else if (sys.readFile(s.gpa, ch.path, diff.Live.max_bytes)) |data| {
                     const info = doc.detect(data);
                     if (!info.utf8 or std.mem.indexOfScalar(u8, data[0..@min(data.len, 8000)], 0) != null) {
                         s.gpa.free(data);
@@ -175,7 +176,7 @@ pub const Screen = struct {
                     }
                 } else |e| {
                     if (e == error.OutOfMemory) return e;
-                    f.note = if (e == error.FileTooBig) "Too large to show" else "Cannot be read";
+                    f.note = if (e == error.StreamTooLong) "Too large to show" else "Cannot be read";
                 }
                 if (f.ed) |ed| {
                     f.hl = try syntax.Highlight.init(s.gpa, ch.path);

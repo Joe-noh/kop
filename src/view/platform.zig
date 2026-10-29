@@ -13,7 +13,7 @@ pub fn clipboard(gpa: Allocator, out: *std.ArrayList(u8)) !void {
 }
 
 pub fn setClipboard(gpa: Allocator, s: []const u8) !void {
-    const z = try gpa.dupeZ(u8, s);
+    const z = try gpa.dupeSentinel(u8, s, 0);
     defer gpa.free(z);
     _ = c.SDL_SetClipboardText(z.ptr);
 }

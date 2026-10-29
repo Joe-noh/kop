@@ -10,6 +10,7 @@
 // in lang and the languages in languages.
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const Allocator = std.mem.Allocator;
 const Text = @import("text.zig").Text;
 pub const lang = @import("syntax/lang.zig");
@@ -65,7 +66,7 @@ pub const Highlight = struct {
         const l = hl.lang orelse return true;
         const target = @min(upto, t.lf);
         if (hl.states.items.len > target) return true;
-        var timer = std.time.Timer.start() catch null;
+        const started = sys.monotonic();
         // Read on in chunks from the start of the last line whose state is known.
         var n = hl.states.items.len - 1;
         var pos = t.lineStart(n);
@@ -94,7 +95,7 @@ pub const Highlight = struct {
                 pos = t.lineStart(n);
             } else pos += from;
             if (end == t.len and from == chunk.len) break;
-            if (timer) |*tm| if (@as(f64, @floatFromInt(tm.read())) / 1e9 > budget) return false;
+            if (sys.monotonic() - started > budget) return false;
         }
         return hl.states.items.len > target;
     }
@@ -116,7 +117,7 @@ fn spansOf(l: *const Language, line: []const u8, state: u8, out: *std.ArrayList(
     var spans: std.ArrayList(Span) = .empty;
     defer spans.deinit(gpa);
     const next = try lexLine(gpa, l, line, state, &spans);
-    for (spans.items) |s| try out.print(gpa, "{d}:{s} ", .{ @intFromEnum(s.kind), line[s.start .. s.start + s.len] });
+    for (spans.items) |s| try out.print(gpa, "{d}:{s} ", .{ @backingInt(s.kind), line[s.start .. s.start + s.len] });
     return next;
 }
 

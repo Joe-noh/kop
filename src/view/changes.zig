@@ -135,7 +135,7 @@ pub const Panel = struct {
             const name_cols = try f.drawStr(nx, y, s.items, if (e.kind == .deleted) th().hint_fg else th().tree_fg);
             if (dir.len > 0 and name_cols + 2 < room) {
                 s.clearRetainingCapacity();
-                try tree.fit(gpa, std.mem.trimRight(u8, dir, "/"), room - name_cols - 1, s);
+                try tree.fit(gpa, std.mem.trimEnd(u8, dir, "/"), room - name_cols - 1, s);
                 _ = try f.drawStr(nx + float(name_cols + 1) * f.cell_w, y, s.items, th().hint_fg);
             }
         }

@@ -9,6 +9,7 @@
 // --profile prints how long loading and frames take.
 
 const std = @import("std");
+const sys = @import("sys.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const c = @import("view/c.zig").c;
@@ -85,12 +86,12 @@ fn basename(path: []const u8) []const u8 {
 
 // A modified document the window was closed on goes to ~/.kop/recovery.
 fn keepRecovery(gpa: Allocator, ed: *const Editor, v: *const View) !void {
-    const home = std.posix.getenv("HOME") orelse return;
+    const home = sys.getenv("HOME") orelse return;
     const dir = try std.fs.path.join(gpa, &.{ home, ".kop/recovery" });
     defer gpa.free(dir);
-    std.fs.cwd().makePath(dir) catch return;
+    sys.makePath(dir) catch return;
     const name = if (v.path.len > 0) basename(v.path.slice()) else "untitled";
-    const path = try std.fmt.allocPrint(gpa, "{s}/{s}.{d}", .{ dir, name, std.time.timestamp() });
+    const path = try std.fmt.allocPrint(gpa, "{s}/{s}.{d}", .{ dir, name, sys.unixTime() });
     defer gpa.free(path);
     doc.save(&ed.t, v.info, path) catch return;
     std.debug.print("kop: unsaved changes kept in {s}\n", .{path});
@@ -99,14 +100,14 @@ fn keepRecovery(gpa: Allocator, ed: *const Editor, v: *const View) !void {
 fn setTitle(app: *App, v: *const View, dirty: bool) void {
     var buf: [1200]u8 = undefined;
     const name = if (v.path.len > 0) basename(v.path.slice()) else "(untitled)";
-    const title = std.fmt.bufPrintZ(&buf, "{s}{s} — kop", .{ if (dirty) "● " else "", name }) catch return;
+    const title = std.mem.printSentinel(&buf, "{s}{s} — kop", .{ if (dirty) "● " else "", name }, 0) catch return;
     _ = c.SDL_SetWindowTitle(app.win, title.ptr);
 }
 
 // Saves the frame to a PNG file.
 fn screenshot(app: *App, path: []const u8) void {
     var buf: [1024]u8 = undefined;
-    const z = std.fmt.bufPrintZ(&buf, "{s}", .{path}) catch return;
+    const z = std.mem.printSentinel(&buf, "{s}", .{path}, 0) catch return;
     const surface = c.SDL_RenderReadPixels(app.ren, null) orelse return;
     defer c.SDL_DestroySurface(surface);
     if (!c.SDL_SavePNG(surface, z.ptr)) std.debug.print("kop: cannot save {s}: {s}\n", .{ path, c.SDL_GetError() });
@@ -250,7 +251,7 @@ fn editFile(app: *App, path: []const u8) !Outcome {
     // The file, read whole, and where its lines start.
     var opened_ok = true;
     const file: []u8 = if (path.len > 0)
-        std.fs.cwd().readFileAlloc(gpa, path, std.math.maxInt(usize)) catch |e| switch (e) {
+        sys.readFile(gpa, path, std.math.maxInt(usize)) catch |e| switch (e) {
             error.FileNotFound => try gpa.alloc(u8, 0),
             error.OutOfMemory => return e,
             else => blk: {
@@ -515,14 +516,12 @@ fn fail(comptime what: []const u8) noreturn {
     std.process.exit(1);
 }
 
-pub fn main() !void {
-    var debug_allocator = std.heap.DebugAllocator(.{}){};
-    defer _ = debug_allocator.deinit();
-    const gpa = if (builtin.mode == .Debug) debug_allocator.allocator() else std.heap.smp_allocator;
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    sys.setIo(init.io);
     _ = clock();
 
-    const argv = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, argv);
+    const argv = try init.minimal.args.toSlice(init.arena.allocator());
     var path_arg: []const u8 = "";
     var script_path: ?[]const u8 = null;
     var frames: ?usize = null;
@@ -541,7 +540,7 @@ pub fn main() !void {
         } else path_arg = a;
     }
     const mac = builtin.os.tag == .macos;
-    const script_src: ?[]u8 = if (script_path) |p| std.fs.cwd().readFileAlloc(gpa, p, 1 << 20) catch {
+    const script_src: ?[]u8 = if (script_path) |p| sys.readFile(gpa, p, 1 << 20) catch {
         std.debug.print("kop: cannot read {s}\n", .{p});
         std.process.exit(1);
     } else null;
@@ -601,7 +600,7 @@ pub fn main() !void {
     // A directory opens as the tree, with no file yet; a file opens by itself.
     var tr = Tree.init(gpa);
     defer tr.deinit();
-    const is_dir = if (path_arg.len > 0) (if (std.fs.cwd().statFile(path_arg)) |st| st.kind == .directory else |_| false) else false;
+    const is_dir = path_arg.len > 0 and sys.isDir(path_arg);
     var app = App{
         .gpa = gpa,
         .win = win,

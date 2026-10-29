@@ -4,17 +4,31 @@
 
 ## ビルド
 
-Zig 0.15.2（`mise install` で入る）と、SDL3・FreeType（`brew install sdl3 freetype`）が要る。
+Zig 0.17.0 が要る（`mise install` で入る）。SDL3 と FreeType はソースからビルドして静的にリンクするので、できたバイナリは単体で動く。
 
 ```bash
 zig build run -- path/to/file.txt
 ```
 
 ```bash
-zig build -Doptimize=ReleaseFast && zig-out/bin/kop path/to/dir
+zig build -Doptimize=fast && zig-out/bin/kop path/to/dir
 ```
 
-SDL3 と FreeType は既定で `/opt/homebrew` から探す。別の場所にあるときは `-Ddeps=<prefix>` で指定する。
+初回のビルドで SDL3 と FreeType のソースを取ってきて、`zig-pkg/` に置く。システムの SDL3・FreeType を動的にリンクするときは `-Dsystem-deps` を付ける（既定は Homebrew の `/opt/homebrew`、別の場所なら `-Ddeps=<prefix>`）。
+
+ビルドしているものより古い macOS 向けにするときは、SDK を指定する:
+
+```bash
+zig build -Doptimize=fast -Dtarget=aarch64-macos.13.0 -Dmacos-sdk="$(xcrun --sdk macosx --show-sdk-path)"
+```
+
+## リリース
+
+`v` で始まるタグを push すると、GitHub Actions（`.github/workflows/release.yml`）が macOS（Apple silicon、13 以降）と Linux（x86-64、glibc 2.31 以降）向けにビルドし、そのタグの Release に添付する。
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
 
 ## 構成
 
@@ -36,6 +50,7 @@ src/core/syntax/        字句解析器（code: Zig・Goose・Ruby・JS・TS、s
 src/core/search.zig     プロジェクト全体の検索（ファイルの一覧、一致、前後2行の抜粋）
 src/core/git.zig        git の変更（HEAD との差分の行数、新規・削除）を別スレッドで取得
 src/core/diff.zig       行単位の差分（Myers）と、編集中の文書の HEAD との差分
+src/sys.zig             ファイル・環境変数・時計・子プロセス（Zig の Io をひとつ持っておく）
 src/view/               描画、入力、フォント（FreeType）、ファイルツリー、検索結果の画面、差分ビュー、右側の変更一覧、テーマ、SDL まわり、テスト用の入力再生
 src/tests.zig           ウィンドウの要らないテストの入口
 ```

@@ -3,6 +3,7 @@
 // its rows after its own; closing it takes them out again.
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const Allocator = std.mem.Allocator;
 const width = @import("../core/width.zig");
 
@@ -50,12 +51,12 @@ pub const Tree = struct {
 
     // The entries of directory `dir`, directories first, into `out`.
     fn listEntries(tr: *Tree, dir: []const u8, depth: usize, out: *std.ArrayList(Entry)) !void {
-        var d = std.fs.cwd().openDir(dir, .{ .iterate = true }) catch return;
-        defer d.close();
+        const d = sys.openDir(dir) catch return;
+        defer sys.closeDir(d);
         const a = tr.arena.allocator();
         const first = out.items.len;
-        var it = d.iterate();
-        while (it.next() catch null) |e| {
+        var it = sys.Entries.of(d);
+        while (it.next()) |e| {
             if (hidden(e.name)) continue;
             const sep = if (dir.len > 0 and dir[dir.len - 1] != '/') "/" else "";
             const path = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ dir, sep, e.name });
@@ -97,14 +98,13 @@ pub const Tree = struct {
 };
 
 fn isDir(path: []const u8) bool {
-    const st = std.fs.cwd().statFile(path) catch return false;
-    return st.kind == .directory;
+    return sys.isDir(path);
 }
 
 // The name of the directory `path` names, which "." and "dir/.." do not
 // say: the last part of its absolute path.
 pub fn directoryName(gpa: Allocator, path: []const u8) ![]const u8 {
-    const full = std.fs.cwd().realpathAlloc(gpa, path) catch return gpa.dupe(u8, path);
+    const full = sys.realPath(gpa, path) catch return gpa.dupe(u8, path);
     defer gpa.free(full);
     const name = std.fs.path.basename(full);
     return gpa.dupe(u8, if (name.len == 0) "/" else name);
@@ -126,7 +126,7 @@ test "directory name" {
     const root = try directoryName(gpa, "/");
     defer gpa.free(root);
     try testing.expectEqualStrings("/", root);
-    const cwd = try std.process.getCwdAlloc(gpa);
+    const cwd = try sys.realPath(gpa, ".");
     defer gpa.free(cwd);
     const dot = try directoryName(gpa, ".");
     defer gpa.free(dot);

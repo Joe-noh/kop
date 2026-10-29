@@ -67,7 +67,7 @@ pub const Command = enum {
 
     // Commands that move the carets, which select when Shift is held.
     pub fn isMotion(c: Command) bool {
-        return @intFromEnum(c) >= @intFromEnum(Command.left) and @intFromEnum(c) <= @intFromEnum(Command.page_down);
+        return @backingInt(c) >= @backingInt(Command.left) and @backingInt(c) <= @backingInt(Command.page_down);
     }
 };
 

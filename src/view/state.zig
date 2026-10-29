@@ -2,6 +2,7 @@
 // document itself.
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const doc = @import("../core/doc.zig");
 const utf8 = @import("../core/utf8.zig");
 
@@ -56,9 +57,9 @@ pub const DiskStamp = struct {
 
     pub fn of(path: []const u8) DiskStamp {
         if (path.len == 0) return .{};
-        const st = std.fs.cwd().statFile(path) catch return .{};
+        const st = sys.stat(path) catch return .{};
         if (st.kind != .file) return .{};
-        return .{ .exists = true, .size = st.size, .mtime = st.mtime };
+        return .{ .exists = true, .size = st.size, .mtime = st.mtime.toNanoseconds() };
     }
 
     pub fn same(a: DiskStamp, b: DiskStamp) bool {
@@ -124,12 +125,12 @@ pub const View = struct {
 };
 
 // Seconds since the program started.
-var started: ?std.time.Instant = null;
+var started: ?f64 = null;
 
 pub fn clock() f64 {
-    const now = std.time.Instant.now() catch return 0;
+    const now = sys.monotonic();
     if (started == null) started = now;
-    return @as(f64, @floatFromInt(now.since(started.?))) / 1e9;
+    return now - started.?;
 }
 
 pub fn say(v: *View, msg: []const u8) void {

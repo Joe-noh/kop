@@ -8,6 +8,7 @@
 // smartcase).
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const Allocator = std.mem.Allocator;
 
 pub const context_lines = 2; // shown before and after each match
@@ -60,7 +61,7 @@ pub fn caseSensitive(query: []const u8) bool {
 }
 
 fn indexOf(hay: []const u8, from: usize, needle: []const u8, sensitive: bool) ?usize {
-    return if (sensitive) std.mem.indexOfPos(u8, hay, from, needle) else std.ascii.indexOfIgnoreCasePos(hay, from, needle);
+    return if (sensitive) std.mem.indexOfPos(u8, hay, from, needle) else std.ascii.findIgnoreCasePos(hay, from, needle);
 }
 
 // The matches of `query` in `data`, with `line_starts` saying where its
@@ -117,13 +118,9 @@ fn skipped(name: []const u8) bool {
 
 // The project's files, relative to `root`, one after another in `out`.
 pub fn listFiles(gpa: Allocator, root: []const u8, out: *std.ArrayList([]const u8)) !void {
-    if (std.process.Child.run(.{
-        .allocator = gpa,
-        .argv = &.{ "git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard" },
-        .max_output_bytes = 256 << 20,
-    })) |r| {
+    if (sys.run(gpa, &.{ "git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard" }, 256 << 20)) |r| {
         defer gpa.free(r.stderr);
-        if (r.term == .Exited and r.term.Exited == 0) {
+        if (r.ok) {
             defer gpa.free(r.stdout);
             var it = std.mem.splitScalar(u8, r.stdout, 0);
             while (it.next()) |p| if (p.len > 0) try out.append(gpa, try gpa.dupe(u8, p));
@@ -142,10 +139,10 @@ pub fn listFiles(gpa: Allocator, root: []const u8, out: *std.ArrayList([]const u
         defer gpa.free(rel);
         const full = try std.fs.path.join(gpa, &.{ root, rel });
         defer gpa.free(full);
-        var dir = std.fs.cwd().openDir(full, .{ .iterate = true }) catch continue;
-        defer dir.close();
-        var it = dir.iterate();
-        while (it.next() catch null) |e| {
+        const dir = sys.openDir(full) catch continue;
+        defer sys.closeDir(dir);
+        var it = sys.Entries.of(dir);
+        while (it.next()) |e| {
             if (skipped(e.name)) continue;
             const p = try std.fs.path.join(gpa, &.{ rel, e.name });
             switch (e.kind) {
@@ -184,9 +181,9 @@ pub fn search(gpa: Allocator, root: []const u8, query: []const u8) !Results {
             break;
         }
         const path = try std.fs.path.join(a, &.{ root, name });
-        const data = std.fs.cwd().readFileAlloc(gpa, path, max_file_size) catch continue;
+        const data = sys.readFile(gpa, path, max_file_size) catch continue;
         r.searched += 1;
-        if (isBinary(data) or (if (caseSensitive(query)) std.mem.indexOf(u8, data, query) else std.ascii.indexOfIgnoreCase(data, query)) == null) {
+        if (isBinary(data) or (if (caseSensitive(query)) std.mem.indexOf(u8, data, query) else std.ascii.findIgnoreCase(data, query)) == null) {
             gpa.free(data);
             continue;
         }
@@ -243,14 +240,16 @@ test "a project's files" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    try tmp.dir.makePath("sub");
-    try tmp.dir.makePath(".hidden");
-    try tmp.dir.writeFile(.{ .sub_path = "sub/a.txt", .data = "one needle\ntwo\n" });
-    try tmp.dir.writeFile(.{ .sub_path = "b.txt", .data = "Needle\n" });
-    try tmp.dir.writeFile(.{ .sub_path = ".hidden/c.txt", .data = "needle\n" });
-    try tmp.dir.writeFile(.{ .sub_path = "bin.dat", .data = "needle\x00" });
-    const root = try tmp.dir.realpathAlloc(gpa, ".");
-    defer gpa.free(root);
+    const io = testing.io;
+    try tmp.dir.createDirPath(io, "sub");
+    try tmp.dir.createDirPath(io, ".hidden");
+    try tmp.dir.writeFile(io, .{ .sub_path = "sub/a.txt", .data = "one needle\ntwo\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "b.txt", .data = "Needle\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = ".hidden/c.txt", .data = "needle\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "bin.dat", .data = "needle\x00" });
+    const root_z = try tmp.dir.realPathFileAlloc(io, ".", gpa);
+    defer gpa.free(root_z);
+    const root: []const u8 = root_z;
     var r = try search(gpa, root, "needle");
     defer r.deinit();
     try testing.expectEqual(@as(usize, 2), r.files.items.len);

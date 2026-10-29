@@ -15,6 +15,7 @@
 // the ui the text's.
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const Allocator = std.mem.Allocator;
 const json = std.json;
 
@@ -156,7 +157,7 @@ pub const Settings = struct {
     // Reads the file at `path` over `s`, if there is one; what went wrong goes
     // into `problems`, after the file's name.
     pub fn loadFile(s: *Settings, path: []const u8, problems: *std.ArrayList(u8)) !void {
-        const src = std.fs.cwd().readFileAlloc(s.gpa, path, 1 << 20) catch |e| switch (e) {
+        const src = sys.readFile(s.gpa, path, 1 << 20) catch |e| switch (e) {
             error.FileNotFound => return,
             error.OutOfMemory => return e,
             else => {
@@ -184,12 +185,12 @@ pub fn projectDir(path: []const u8, is_dir: bool) []const u8 {
 pub fn load(gpa: Allocator, path: []const u8, problems: *std.ArrayList(u8)) !Settings {
     var s = Settings.init(gpa);
     errdefer s.deinit();
-    if (std.posix.getenv("HOME")) |home| {
+    if (sys.getenv("HOME")) |home| {
         const p = try std.fs.path.join(gpa, &.{ home, ".kop/settings.json" });
         defer gpa.free(p);
         try s.loadFile(p, problems);
     }
-    const is_dir = if (std.fs.cwd().statFile(path)) |st| st.kind == .directory else |_| false;
+    const is_dir = sys.isDir(path);
     const dir = projectDir(path, is_dir);
     if (dir.len > 0) {
         const p = try std.fs.path.join(gpa, &.{ dir, ".kop/settings.json" });

@@ -31,10 +31,10 @@ pub const Theme = struct {
     removed: Color, // a deleted file, and lines removed
     added_bg: Color, // behind lines added, where a diff shows them
     removed_bg: Color, // and lines removed
-    tokens: [@typeInfo(Tok).@"enum".fields.len]Color, // by Tok
+    tokens: [@typeInfo(Tok).@"enum".field_names.len]Color, // by Tok
 
     pub fn token(t: *const Theme, kind: Tok) Color {
-        return t.tokens[@intFromEnum(kind)];
+        return t.tokens[@backingInt(kind)];
     }
 };
 

@@ -1,0 +1,63 @@
+# Builds kop for macOS (Apple silicon) and Linux (x86-64), with SDL3 and
+# FreeType linked in, and on a tag "v*" puts them in a release of that name.
+# Run by hand, it builds without releasing; the archives are the run's
+# artifacts.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-macos.13.0
+            name: kop-macos-arm64
+            # An older macOS than the runner's needs the SDK named.
+            flags: -Dmacos-sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          - os: ubuntu-24.04
+            target: x86_64-linux-gnu.2.31
+            name: kop-linux-x86_64
+            flags: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - name: Test
+        run: zig build test
+      - name: Build
+        run: zig build -Doptimize=fast -Dtarget=${{ matrix.target }} ${{ matrix.flags }}
+      - name: Package
+        run: |
+          mkdir -p "dist/${{ matrix.name }}"
+          cp zig-out/bin/kop README.md "dist/${{ matrix.name }}/"
+          tar -C dist -czf "${{ matrix.name }}.tar.gz" "${{ matrix.name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}.tar.gz
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release
+        run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

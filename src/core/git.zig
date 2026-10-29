@@ -7,6 +7,7 @@
 // comes.
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const Allocator = std.mem.Allocator;
 
 pub const Kind = enum { modified, added, deleted };
@@ -35,9 +36,9 @@ fn run(gpa: Allocator, dir: []const u8, args: []const []const u8) !?[]u8 {
     defer argv.deinit(gpa);
     try argv.appendSlice(gpa, &.{ "git", "-C", dir });
     try argv.appendSlice(gpa, args);
-    const r = std.process.Child.run(.{ .allocator = gpa, .argv = argv.items, .max_output_bytes = 64 << 20 }) catch return null;
+    const r = sys.run(gpa, argv.items, 64 << 20) catch return null;
     gpa.free(r.stderr);
-    if (r.term == .Exited and r.term.Exited == 0) return r.stdout;
+    if (r.ok) return r.stdout;
     gpa.free(r.stdout);
     return null;
 }
@@ -84,7 +85,7 @@ pub fn parseNumstat(gpa: Allocator, out: []const u8, counts: *std.StringHashMapU
 // The lines of a file git does not know yet, all of them added; null for
 // a binary one.
 fn countLines(gpa: Allocator, path: []const u8) ?usize {
-    const data = std.fs.cwd().readFileAlloc(gpa, path, 64 << 20) catch return null;
+    const data = sys.readFile(gpa, path, 64 << 20) catch return null;
     defer gpa.free(data);
     if (std.mem.indexOfScalar(u8, data[0..@min(data.len, 8000)], 0) != null) return null;
     const n = std.mem.count(u8, data, "\n");
@@ -263,21 +264,23 @@ test "a repository's changes" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    const dir = try tmp.dir.realpathAlloc(gpa, ".");
-    defer gpa.free(dir);
+    const io = testing.io;
+    const dir_z = try tmp.dir.realPathFileAlloc(io, ".", gpa);
+    defer gpa.free(dir_z);
+    const dir: []const u8 = dir_z;
     const setup = [_][]const []const u8{
         &.{"init"},
         &.{ "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--allow-empty", "-m", "start" },
     };
-    try tmp.dir.writeFile(.{ .sub_path = "kept.txt", .data = "one\ntwo\nthree\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "kept.txt", .data = "one\ntwo\nthree\n" });
     for (setup) |args| {
         const o = try run(gpa, dir, args) orelse return error.SkipZigTest;
         gpa.free(o);
     }
     if (try run(gpa, dir, &.{ "add", "kept.txt" })) |o| gpa.free(o);
     if (try run(gpa, dir, &.{ "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-m", "kept" })) |o| gpa.free(o);
-    try tmp.dir.writeFile(.{ .sub_path = "kept.txt", .data = "one\n2\nthree\nfour\n" });
-    try tmp.dir.writeFile(.{ .sub_path = "new.txt", .data = "a\nb" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "kept.txt", .data = "one\n2\nthree\nfour\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "new.txt", .data = "a\nb" });
     var c = (try collect(gpa, dir)).?;
     defer c.deinit();
     try testing.expectEqual(@as(usize, 2), c.list.items.len);
@@ -288,8 +291,8 @@ test "a repository's changes" {
     try testing.expect(new.kind == .added and new.added == 2 and new.removed == 0);
     try testing.expect(std.mem.startsWith(u8, new.path, dir));
     // Asked from inside a directory of it, its files are written from there.
-    try tmp.dir.makePath("sub");
-    try tmp.dir.writeFile(.{ .sub_path = "sub/x.txt", .data = "x\n" });
+    try tmp.dir.createDirPath(io, "sub");
+    try tmp.dir.writeFile(io, .{ .sub_path = "sub/x.txt", .data = "x\n" });
     const sub = try std.fs.path.join(gpa, &.{ dir, "sub" });
     defer gpa.free(sub);
     var c2 = (try collect(gpa, sub)).?;

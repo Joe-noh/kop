@@ -2,6 +2,7 @@
 // reads them, collections (.ttc) included.
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const utf8 = @import("../core/utf8.zig");
@@ -22,22 +23,15 @@ pub fn defaultFonts() []const u8 {
 
 // Where the system keeps fonts, as lines.
 fn fontDirs(gpa: Allocator, out: *std.ArrayList(u8)) !void {
-    const home = std.process.getEnvVarOwned(gpa, "HOME") catch null;
-    defer if (home) |h| gpa.free(h);
+    const home = sys.getenv("HOME");
     switch (builtin.os.tag) {
         .macos => {
             try out.appendSlice(gpa, "/System/Library/Fonts\n/System/Library/Fonts/Supplemental\n/Library/Fonts\n");
             if (home) |h| try out.print(gpa, "{s}/Library/Fonts\n", .{h});
         },
         .windows => {
-            if (std.process.getEnvVarOwned(gpa, "WINDIR") catch null) |w| {
-                defer gpa.free(w);
-                try out.print(gpa, "{s}/Fonts\n", .{w});
-            }
-            if (std.process.getEnvVarOwned(gpa, "LOCALAPPDATA") catch null) |l| {
-                defer gpa.free(l);
-                try out.print(gpa, "{s}/Microsoft/Windows/Fonts\n", .{l});
-            }
+            if (sys.getenv("WINDIR")) |w| try out.print(gpa, "{s}/Fonts\n", .{w});
+            if (sys.getenv("LOCALAPPDATA")) |l| try out.print(gpa, "{s}/Microsoft/Windows/Fonts\n", .{l});
         },
         else => {
             try out.appendSlice(gpa, "/usr/share/fonts\n/usr/local/share/fonts\n");
@@ -105,10 +99,10 @@ fn findInDirs(gpa: Allocator, dirs: []const u8, name: []const u8, depth: usize, 
         var lines = std.mem.splitScalar(u8, level.items, '\n');
         while (lines.next()) |dir_path| {
             if (dir_path.len == 0) continue;
-            var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch continue;
-            defer dir.close();
-            var it = dir.iterate();
-            while (it.next() catch null) |e| {
+            const dir = sys.openDir(dir_path) catch continue;
+            defer sys.closeDir(dir);
+            var it = sys.Entries.of(dir);
+            while (it.next()) |e| {
                 entry.clearRetainingCapacity();
                 try composeKana(gpa, e.name, &entry);
                 const matched = if (with_ext)
@@ -133,12 +127,10 @@ fn findInDirs(gpa: Allocator, dirs: []const u8, name: []const u8, depth: usize, 
 pub fn resolve(gpa: Allocator, name: []const u8, out: *std.ArrayList(u8)) !bool {
     if (std.mem.indexOfAny(u8, name, "/\\") != null) {
         if (std.mem.startsWith(u8, name, "~/")) {
-            const home = std.process.getEnvVarOwned(gpa, "HOME") catch return false;
-            defer gpa.free(home);
+            const home = sys.getenv("HOME") orelse return false;
             try out.print(gpa, "{s}{s}", .{ home, name[1..] });
         } else try out.appendSlice(gpa, name);
-        std.fs.cwd().access(out.items, .{}) catch return false;
-        return true;
+        return sys.exists(out.items);
     }
     var dirs: std.ArrayList(u8) = .empty;
     defer dirs.deinit(gpa);

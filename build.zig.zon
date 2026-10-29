@@ -1,0 +1,21 @@
+.{
+    .name = .kop,
+    .version = "0.1.0",
+    .fingerprint = 0x9a3fb87f5ae7aee,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .sdl = .{
+            .url = "git+https://github.com/castholm/SDL.git?ref=v0.6.0+3.4.18#dbcb19aa3583c318556ecae3ecbeb29b102d37c5",
+            .hash = "sdl-0.6.0+3.4.18-SDL--p-gqAGWpnfTLlhs0dgjDtc4P4_CHeNLGY_SX_Fv",
+        },
+        .freetype = .{
+            .url = "git+https://github.com/allyourcodebase/freetype.git#4317b65493b7acf63b8c4e5e8818597aa50c39d0",
+            .hash = "freetype-2.14.3-C3-WdcEaAAD-lcpr49B1QSWrwRLJbTI47BrkJJe5202A",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

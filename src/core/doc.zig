@@ -2,6 +2,7 @@
 // indentation and encoding, found when it is opened and kept when it is saved.
 
 const std = @import("std");
+const sys = @import("../sys.zig");
 const Text = @import("text.zig").Text;
 const utf8 = @import("utf8.zig");
 
@@ -54,11 +55,7 @@ pub fn save(t: *const Text, info: FileInfo, path: []const u8) !void {
     defer out.deinit(t.gpa);
     if (info.bom) try out.appendSlice(t.gpa, bom);
     try t.all(&out);
-    var buf: [4096]u8 = undefined;
-    var file = try std.fs.cwd().atomicFile(path, .{ .write_buffer = &buf });
-    defer file.deinit();
-    try file.file_writer.interface.writeAll(out.items);
-    try file.finish();
+    try sys.writeAtomic(path, out.items);
 }
 
 test "detect" {
