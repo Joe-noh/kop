@@ -39,7 +39,7 @@ fn triangle(ren: *c.SDL_Renderer, pts: [3][2]f32, color: Color) void {
     _ = c.SDL_RenderGeometry(ren, null, &vs, 3, null, 0);
 }
 
-fn digits(n: usize) usize {
+pub fn digits(n: usize) usize {
     var d: usize = 1;
     var x = n;
     while (x >= 10) : (x /= 10) d += 1;
@@ -121,7 +121,7 @@ pub fn hit(ed: *const Editor, v: *const View, x: f32, y: f32) !usize {
 
 // One line of text at row `y`, colored by `spans`, with its tabs, full-width
 // spaces and trailing blanks shown as marks.
-fn drawLine(ren: *c.SDL_Renderer, f: *Face, v: *const View, line: []const u8, y: f32, spans: []const Span) !void {
+pub fn drawLine(ren: *c.SDL_Renderer, f: *Face, v: *const View, line: []const u8, y: f32, spans: []const Span) !void {
     // Where the trailing blanks start, which get marks.
     var blank_from = line.len;
     while (blank_from > 0 and (line[blank_from - 1] == ' ' or line[blank_from - 1] == '\t')) blank_from -= 1;
@@ -160,18 +160,18 @@ fn drawLine(ren: *c.SDL_Renderer, f: *Face, v: *const View, line: []const u8, y:
     }
 }
 
-const Cols = struct { a: usize, b: usize, past: bool };
+pub const Cols = struct { a: usize, b: usize, past: bool };
 
 // The part of [a, b) on a line starting at `ls` with text `line`, as cell
 // columns; `past` when the range goes on beyond the line's break.
-fn spanCols(line: []const u8, ls: usize, a: usize, b: usize) Cols {
+pub fn spanCols(line: []const u8, ls: usize, a: usize, b: usize) Cols {
     const lo = std.math.clamp(a -| ls, 0, line.len);
     const hi = std.math.clamp(b -| ls, 0, line.len);
     const ca = width.advance(line[0..lo], 0);
     return .{ .a = ca, .b = width.advance(line[lo..hi], ca), .past = b > ls + line.len };
 }
 
-fn fillCols(ren: *c.SDL_Renderer, v: *const View, y: f32, ca: usize, cb: usize, color: Color) void {
+pub fn fillCols(ren: *c.SDL_Renderer, v: *const View, y: f32, ca: usize, cb: usize, color: Color) void {
     const a = @max(ca, v.left);
     const b = @min(cb, v.left + v.cols + 1);
     if (b > a) fill(ren, cellX(v, a), y, float(b - a) * v.cell_w, v.line_h, color);
@@ -307,7 +307,7 @@ pub fn treeRowAt(v: *const View, tr: *const Tree, x: f32, y: f32) TreeHit {
 
 // The tree: the directory's name, then a row per entry, indented by depth;
 // the file being edited is marked.
-fn drawTree(ren: *c.SDL_Renderer, f: *Face, v: *const View, tr: *const Tree, sc: *Scratch) !void {
+pub fn drawTree(ren: *c.SDL_Renderer, f: *Face, v: *const View, tr: *const Tree, sc: *Scratch) !void {
     const gpa = sc.gpa;
     const pw = v.panel_w;
     fill(ren, 0, 0, pw, v.tree_bottom, th().panel_bg);
@@ -350,6 +350,11 @@ pub fn draw(ren: *c.SDL_Renderer, f: *Fonts, ed: *const Editor, v: *View, tr: *T
     const h: f32 = @floatFromInt(ph);
     layout(ed, v, tr, f, w, h);
     clampScroll(ed, v);
+    if (v.center) {
+        v.center = false;
+        v.top = ed.t.lineOf(ed.primary().head) -| v.rows / 3;
+        v.scroll_y = 0;
+    }
     if (v.follow) {
         try followCaret(ed, v);
         v.follow = false;

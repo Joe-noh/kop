@@ -88,6 +88,7 @@ pub const View = struct {
     tree_bottom: f32 = 0,
     tree_rows: usize = 1, // entry rows that fit below the header
     follow: bool = true, // scroll to the primary caret at the next draw
+    center: bool = false, // and put it a third of the way down
     scroll_y: f32 = 0, // how far the top line is scrolled up out of view, in pixels
     drag: Drag = .none,
     drag_a: usize = 0, // the word or line first clicked, for drags by words or lines
@@ -111,6 +112,7 @@ pub const View = struct {
     disk_checked: f64 = 0,
     disk_told: DiskStamp = .{},
     reload_request: bool = false,
+    search_request: bool = false, // to search the whole project
     overwrite_ok: bool = false, // told that saving overwrites a change on disk; the next save does
 };
 

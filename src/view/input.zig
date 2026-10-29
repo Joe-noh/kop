@@ -299,6 +299,7 @@ pub fn runCommand(cx: Context, cmd: Command, select: bool) !void {
         .reload => {
             if (v.path.len > 0) v.reload_request = true;
         },
+        .search_project => v.search_request = true,
         .select_all => {
             ed.selectAll();
             touched(v);

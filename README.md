@@ -31,7 +31,8 @@ src/core/settings.zig   設定ファイル（~/.kop/settings.json と、プロ�
 src/core/keymap.zig     キーとコマンドの割り当て（既定値と、設定による上書き）
 src/core/syntax.zig     シンタックスハイライト（字句解析器への振り分け、行頭の状態のキャッシュ）
 src/core/syntax/        字句解析器（code: Zig・Goose・Ruby・JS・TS、style: CSS・SCSS・Sass、markup: HTML）、言語の定義、共通部品
-src/view/               描画、入力、フォント（FreeType）、ファイルツリー、テーマ、SDL まわり、テスト用の入力再生
+src/core/search.zig     プロジェクト全体の検索（ファイルの一覧、一致、前後2行の抜粋）
+src/view/               描画、入力、フォント（FreeType）、ファイルツリー、検索結果の画面、テーマ、SDL まわり、テスト用の入力再生
 src/tests.zig           ウィンドウの要らないテストの入口
 ```
 

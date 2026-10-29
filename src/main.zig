@@ -30,6 +30,7 @@ const render = @import("view/render.zig");
 const input = @import("view/input.zig");
 const platform = @import("view/platform.zig");
 const Script = @import("view/script.zig").Script;
+const search_view = @import("view/search_view.zig");
 const Tree = @import("view/tree.zig").Tree;
 const fontfile = @import("view/fontfile.zig");
 const theme = @import("view/theme.zig");
@@ -60,6 +61,8 @@ const App = struct {
     reload_line: usize = 0,
     reload_col: usize = 0,
     reload_top: usize = 0,
+    goto: ?struct { line: usize, col: usize } = null, // where to put the caret in the next document, col in bytes
+    last_query: state.Buf(256) = .{}, // of the last search of the project
     started: f64 = 0,
     frame_time: f64 = 0, // the work of a frame, from input to handing the GPU its commands
     slowest: f64 = 0,
@@ -107,6 +110,74 @@ fn idleTimeout(v: *const View, now: f64) i32 {
     next = @min(next, 1.0 - (now - v.disk_checked));
     if (now - v.message_at < 4.0) next = @min(next, 4.0 - (now - v.message_at));
     return @intFromFloat(std.math.clamp(next * 1000, 1, 1000));
+}
+
+// Takes this frame's input into app.in: the script's, or the window's,
+// waiting for it up to `timeout_ms` when nothing on the screen moves by
+// itself (null: not at all). False once the script is done.
+fn gather(app: *App, timeout_ms: ?i32) !bool {
+    app.in.clear();
+    if (app.script) |*s| {
+        var e: c.SDL_Event = undefined;
+        while (c.SDL_PollEvent(&e)) {}
+        return s.step(&app.in);
+    }
+    var e: c.SDL_Event = undefined;
+    if (timeout_ms) |t| if (c.SDL_WaitEventTimeout(&e, t)) try app.in.take(&e);
+    try app.in.poll();
+    return true;
+}
+
+// Hands the frame drawn since `frame_start` to the screen; true once the
+// run has had the frames it was to have.
+fn finish(app: *App, frame_start: f64) bool {
+    const spent = clock() - frame_start;
+    if (app.script) |s| if (s.shot) |p| screenshot(app, p);
+    app.frame_time += spent;
+    app.slowest = @max(app.slowest, spent);
+    if (app.profile and spent > 0.02) std.debug.print("frame {d} took {d:.1} ms\n", .{ app.drawn, spent * 1000 });
+    _ = c.SDL_RenderPresent(app.ren);
+    if (app.drawn == 0 and app.profile) std.debug.print("first frame after {d:.3} s\n", .{clock() - app.started});
+    app.drawn += 1;
+    return if (app.frames) |f| app.drawn >= f else false;
+}
+
+// The directory a search of the project looks in: the tree's, or the
+// file's, or the working directory.
+fn projectRoot(app: *const App, path: []const u8) []const u8 {
+    if (app.tr.root.len > 0) return app.tr.root;
+    if (path.len > 0) return std.fs.path.dirname(path) orelse ".";
+    return ".";
+}
+
+// Shows a search of the project over the document, until it goes back to
+// it or picks a place to open.
+fn searchProject(app: *App, root: []const u8, query: []const u8, sc: *render.Scratch) !search_view.Action {
+    var s = search_view.Screen{ .gpa = app.gpa, .root = root };
+    defer s.deinit();
+    s.query.set(query);
+    if (query.len > 0) try s.run();
+    _ = c.SDL_SetWindowTitle(app.win, "Search — kop");
+    defer app.last_query = s.query;
+    while (true) {
+        const idle = @mod(clock() - s.v.blink_at, 1.1);
+        const wait: i32 = @intFromFloat(@max((if (idle < 0.65) 0.65 - idle else 1.1 - idle) * 1000, 1));
+        if (!try gather(app, wait)) return .quit;
+        const frame_start = clock();
+        const action = try s.handle(app.gpa, &app.in, app.km, app.mac, app.tr);
+        switch (action) {
+            .none => {},
+            // The path lives in the results, which go with this screen.
+            .open => |o| {
+                app.next.set(o.path);
+                return .{ .open = .{ .path = app.next.slice(), .line = o.line, .col = o.col } };
+            },
+            else => return action,
+        }
+        try s.draw(app.ren, app.fonts, app.tr, sc);
+        app.cursors.show(if (app.in.mouse_x < s.v.panel_w) .arrow else .text);
+        if (finish(app, frame_start)) return .quit;
+    }
 }
 
 const Outcome = enum { quit, open };
@@ -166,6 +237,12 @@ fn editFile(app: *App, path: []const u8) !Outcome {
         v.follow = false;
         say(&v, if (app.reloaded_auto) "Reloaded: changed on disk" else "Reloaded");
     }
+    if (app.goto) |g| {
+        app.goto = null;
+        const n = @min(g.line, ed.t.lf);
+        ed.setSingle(Sel.caret(@min(ed.t.lineStart(n) + g.col, ed.t.lineEnd(n))));
+        v.center = true;
+    }
 
     var sc = render.Scratch{ .gpa = gpa };
     defer sc.deinit();
@@ -176,22 +253,42 @@ fn editFile(app: *App, path: []const u8) !Outcome {
     const cx = input.Context{ .gpa = gpa, .ed = &ed, .v = &v, .tr = app.tr, .km = app.km, .mac = app.mac };
     var done = false;
     while (!done) {
-        // Input: the script's, or the window's, waiting for it when nothing
-        // on the screen moves by itself.
-        app.in.clear();
-        if (app.script) |*s| {
-            var e: c.SDL_Event = undefined;
-            while (c.SDL_PollEvent(&e)) {}
-            if (!try s.step(&app.in)) done = true;
-        } else {
-            const busy = v.drag != .none or v.follow or hl.stateAt(@min(v.top + v.rows + 1, ed.t.lf)) == null;
-            var e: c.SDL_Event = undefined;
-            if (!busy and c.SDL_WaitEventTimeout(&e, idleTimeout(&v, clock()))) try app.in.take(&e);
-            try app.in.poll();
-        }
+        // Input, waiting for it when nothing on the screen moves by itself.
+        const busy = v.drag != .none or v.follow or hl.stateAt(@min(v.top + v.rows + 1, ed.t.lf)) == null;
+        if (!try gather(app, if (busy) null else idleTimeout(&v, clock()))) done = true;
         const frame_start = clock();
         try input.handle(cx, &app.in);
         if (v.quit) break;
+        if (v.search_request) {
+            v.search_request = false;
+            // The selection, when it is a few words on one line; else the last query.
+            var query = app.last_query;
+            const p = ed.primary();
+            if (!p.isEmpty() and p.hi() - p.lo() <= 200) {
+                var sel: std.ArrayList(u8) = .empty;
+                defer sel.deinit(gpa);
+                try ed.t.read(p.lo(), p.hi(), &sel);
+                if (std.mem.indexOfScalar(u8, sel.items, '\n') == null) query.set(sel.items);
+            }
+            switch (try searchProject(app, projectRoot(app, v.path.slice()), query.slice(), &sc)) {
+                .quit => break,
+                .open => |o| {
+                    if (v.path.eql(o.path)) {
+                        const n = @min(o.line, ed.t.lf);
+                        ed.setSingle(Sel.caret(@min(ed.t.lineStart(n) + o.col, ed.t.lineEnd(n))));
+                        v.center = true;
+                    } else {
+                        v.open_path.set(o.path);
+                        v.open_request = true;
+                        app.goto = .{ .line = o.line, .col = o.col };
+                    }
+                },
+                else => {},
+            }
+            v.follow = true;
+            v.blink_at = clock();
+            setTitle(app, &v, ed.h.modified());
+        }
         if (v.open_request) {
             v.open_request = false;
             if (!std.mem.eql(u8, v.open_path.slice(), v.path.slice())) {
@@ -200,7 +297,8 @@ fn editFile(app: *App, path: []const u8) !Outcome {
                     return .open;
                 }
                 v.discard_path.set(v.open_path.slice());
-                say(&v, "Unsaved changes: click again to discard them");
+                app.goto = null;
+                say(&v, "Unsaved changes: open it again to discard them");
             }
         }
         // The file on disk, looked at once a second. A change to it is read
@@ -237,12 +335,7 @@ fn editFile(app: *App, path: []const u8) !Outcome {
 
         try render.draw(app.ren, app.fonts, &ed, &v, app.tr, &hl, &sc);
         app.cursors.show(input.cursorAt(&v, app.tr, &app.in));
-        const spent = clock() - frame_start;
-        if (app.script) |s| if (s.shot) |p| screenshot(app, p);
-        app.frame_time += spent;
-        app.slowest = @max(app.slowest, spent);
-        if (app.profile and spent > 0.02) std.debug.print("frame {d} took {d:.1} ms\n", .{ app.drawn, spent * 1000 });
-        _ = c.SDL_RenderPresent(app.ren);
+        if (finish(app, frame_start)) done = true;
 
         // The input method's candidates open at the primary caret.
         const head = ed.primary().head;
@@ -259,11 +352,6 @@ fn editFile(app: *App, path: []const u8) !Outcome {
             setTitle(app, &v, dirty);
             was_dirty = dirty;
         }
-        if (app.drawn == 0 and app.profile) std.debug.print("first frame after {d:.3} s\n", .{clock() - app.started});
-        app.drawn += 1;
-        if (app.frames) |f| if (app.drawn >= f) {
-            done = true;
-        };
     }
     if (ed.h.modified()) try keepRecovery(gpa, &ed, &v);
     return .quit;

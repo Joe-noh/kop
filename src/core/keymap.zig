@@ -61,6 +61,7 @@ pub const Command = enum {
     toggle_tree,
     cancel,
     reload,
+    search_project,
 
     // Commands that move the carets, which select when Shift is held.
     pub fn isMotion(c: Command) bool {
@@ -94,6 +95,7 @@ const common_keys =
     \\mod+f find
     \\mod+g find_next
     \\mod+shift+g find_previous
+    \\mod+shift+f search_project
     \\mod+s save
     \\mod+q quit
     \\mod+b toggle_tree
@@ -278,6 +280,7 @@ test "keymap" {
     try testing.expectEqual(Command.up, km.commandFor(ctrl, "p").cmd);
     try testing.expectEqual(Command.delete_to_line_end, km.commandFor(ctrl, "k").cmd);
     try testing.expectEqual(Command.reload, km.commandFor(cmd, "r").cmd);
+    try testing.expectEqual(Command.search_project, km.commandFor(.{ .cmd = true, .shift = true }, "f").cmd);
     try km.build(false, "", &problems);
     try testing.expectEqual(Command.select_all, km.commandFor(ctrl, "a").cmd);
     try testing.expectEqual(Command.word_left, km.commandFor(ctrl, "left").cmd);
